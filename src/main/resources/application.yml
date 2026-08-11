@@ -1,0 +1,48 @@
+spring:
+  application.name: tornado
+  datasource:
+    url: ${DB_URL:jdbc:h2:file:./data/tornado;MODE=PostgreSQL}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+  jpa:
+    hibernate.ddl-auto: validate
+    open-in-view: false
+  flyway.enabled: true
+  jackson.serialization.write-dates-as-timestamps: false
+server.port: ${PORT:8080}
+
+tornado:
+  binance:
+    rest-base-url: ${BINANCE_REST_URL:https://api.binance.com}
+    websocket-base-url: ${BINANCE_WS_URL:wss://stream.binance.com:9443}
+    candle-interval: ${CANDLE_INTERVAL:5m}
+    candle-limit: ${CANDLE_LIMIT:250}
+  scheduler:
+    snapshot-interval: ${SNAPSHOT_INTERVAL:15m}
+    snapshot-initial-delay: ${SNAPSHOT_INITIAL_DELAY:10s}
+    grading-interval: ${GRADING_INTERVAL:1m}
+    grading-horizon: ${GRADING_HORIZON:15m}
+  default-coins:
+    - { symbol: BTC, pair: BTCUSDT }
+    - { symbol: ETH, pair: ETHUSDT }
+    - { symbol: BNB, pair: BNBUSDT }
+    - { symbol: SOL, pair: SOLUSDT }
+    - { symbol: XRP, pair: XRPUSDT }
+    - { symbol: ADA, pair: ADAUSDT }
+    - { symbol: DOGE, pair: DOGEUSDT }
+    - { symbol: TON, pair: TONUSDT }
+    - { symbol: TRX, pair: TRXUSDT }
+    - { symbol: AVAX, pair: AVAXUSDT }
+    - { symbol: DOT, pair: DOTUSDT }
+    - { symbol: LINK, pair: LINKUSDT }
+    - { symbol: POL, pair: POLUSDT }
+    - { symbol: SHIB, pair: SHIBUSDT }
+    - { symbol: LTC, pair: LTCUSDT }
+    - { symbol: BCH, pair: BCHUSDT }
+    - { symbol: NEAR, pair: NEARUSDT }
+    - { symbol: UNI, pair: UNIUSDT }
+    - { symbol: ATOM, pair: ATOMUSDT }
+    - { symbol: XLM, pair: XLMUSDT }
+
+logging.level.io.tornado: INFO
+spring.task.scheduling.pool.size: 2

@@ -1,0 +1,11 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: tornado
+      POSTGRES_USER: tornado
+      POSTGRES_PASSWORD: tornado
+    ports: ["5432:5432"]
+    volumes: ["tornado_pg:/var/lib/postgresql/data"]
+volumes:
+  tornado_pg:

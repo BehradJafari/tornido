@@ -1,0 +1,21 @@
+.super-export-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.super-export-row .run {
+  min-height: 43px;
+  white-space: nowrap;
+}
+
+.super-export-row .run:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+@media (max-width: 800px) {
+  .super-export-row { grid-template-columns: 1fr; }
+  .super-export-row .run { justify-content: center; margin-bottom: 14px; }
+}

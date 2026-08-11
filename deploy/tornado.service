@@ -1,0 +1,26 @@
+[Unit]
+Description=Tornado crypto signal backtester
+Wants=network-online.target postgresql.service
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=tornado
+Group=tornado
+WorkingDirectory=/var/lib/tornado
+EnvironmentFile=/etc/tornado/tornado.env
+ExecStart=/bin/sh -c 'exec /usr/bin/java $JAVA_OPTS -jar /opt/tornado/current/tornado.jar'
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=8
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/tornado
+UMask=0027
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
