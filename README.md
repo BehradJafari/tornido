@@ -98,11 +98,12 @@ Twenty USDT pairs are seeded on an empty database. Coins added or removed in Set
 
 Ranked report endpoints accept `horizon=60|900|1800|3600|14400|43200|86400` and require one slice at a time. Combining the seven correlated outcomes from one signal would overstate the independent sample count. Every new manual or scheduled analysis creates predictions for all seven slices when a strategy emits an actionable signal.
 
-The Money report is a historical scenario tool, not a profit forecast. It reports gross P&L, configurable taker fees/slippage/spread/funding estimates, and net P&L separately. Profitable-trade rate is based on positive net P&L; target-hit rate remains a separate ±0.30% research metric. Liquidation uses aggregate trades for partial first/last minutes and one-minute highs/lows only for fully covered middle minutes. Its `SIMPLE_APPROXIMATE` liquidation price is not an exchange maintenance-margin, mark-price, wallet-balance or risk-tier calculation.
+The Money report is a historical scenario tool, not a profit forecast. It reports gross P&L, configurable taker fees/slippage/spread/funding estimates, and net P&L separately. Profitable-trade rate is based on positive net P&L; target-hit rate remains a separate ±0.30% research metric. Liquidation uses aggregate trades for partial first/last minutes and one-minute highs/lows only for fully covered middle minutes. Its `INDEPENDENT_TRADES_SIMPLE_LIQUIDATION` model uses approximate liquidation prices, not exchange maintenance-margin, mark-price, wallet-balance or risk-tier calculations.
 
-Money reports also expose peak concurrent trades, peak required margin, ROI on peak margin and realized closed-trade drawdown. Realized drawdown does not claim to measure every intratrade unrealized equity fluctuation.
+Money reports also expose peak concurrent trades, peak required margin, net P&L divided by peak concurrent margin, and realized closed-trade drawdown. This is an independent-trade analysis, not a fixed-capital portfolio backtest: capital is not depleted or replenished by a portfolio engine. Realized drawdown does not claim to measure every intratrade unrealized equity fluctuation.
 - `GET /api/chart/{pair}?interval=15m&limit=120`
 - `GET /api/predictions?coin=&method=&from=&to=`
+- `GET /api/predictions/history?coin=&method=&from=&to=` (all generations, including legacy predictions)
 - `GET /api/leaderboard?coin=&window=7d`
 - `GET /api/prices/stream` (SSE relay of Binance WebSocket ticks)
 - `GET/PUT /api/settings`
@@ -112,6 +113,8 @@ Exchange errors use bounded retry/backoff and are isolated per coin so one unava
 Prediction rows carry both the global signal-semantics generation and stable per-strategy code/version fields. They also preserve signal, execution, target and grading timestamps/prices plus candle interval. Data created before the neutral-signal, closed-candle and exact-time grading corrections remains available in history but is excluded from current rankings and simulations.
 
 Reports expose target-hit rate and directional accuracy independently. Live consensus is labeled consensus strength, not probability: only methods whose 95% Wilson lower bound is above 50% receive voting weight. This score is not an empirically calibrated chance of success.
+
+The default predictions endpoint returns only corrected generation-2 signals. Historical grading retries failed price retrieval up to five times, then marks the row `UNGRADABLE`; these rows remain auditable but are excluded from accuracy denominators.
 
 ## Verification
 

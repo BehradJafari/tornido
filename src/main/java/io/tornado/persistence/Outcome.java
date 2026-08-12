@@ -1,2 +1,2 @@
 package io.tornado.persistence;
-public enum Outcome { PENDING, CORRECT, INCORRECT }
+public enum Outcome { PENDING, CORRECT, INCORRECT, UNGRADABLE }

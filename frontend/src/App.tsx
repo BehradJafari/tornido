@@ -27,8 +27,11 @@ type Run = {
   status: string;
   predictions: number;
   pending: number;
-  correct: number;
-  accuracy: number;
+  ungradable: number;
+  targetCorrect: number;
+  targetHitRate: number;
+  directionalCorrect: number;
+  directionalAccuracy: number;
   errors: number;
 };
 type Prediction = {
@@ -40,7 +43,7 @@ type Prediction = {
   predictedDirection: "UP" | "DOWN";
   priceAtPrediction: number;
   priceAtGrading?: number;
-  outcome: "PENDING" | "CORRECT" | "INCORRECT";
+  outcome: "PENDING" | "CORRECT" | "INCORRECT" | "UNGRADABLE";
 };
 type Leader = {
   method: string;
@@ -618,7 +621,7 @@ function Analyses({
               <b className="green">
                 {r.predictions === r.pending
                   ? "Pending"
-                  : `${r.accuracy.toFixed(1)}%`}
+                  : `${r.targetHitRate.toFixed(1)}% target · ${r.directionalAccuracy.toFixed(1)}% direction`}
               </b>
             </div>
             <ChevronRight />
@@ -1036,7 +1039,7 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
     coin: string;
     horizon: number;
     methods: string[];
-    liquidationModel: string;
+    simulationModel: string;
     executedTrades: number;
     tradeAmount: number;
     leverage: number;
@@ -1046,8 +1049,7 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
     grossPnl: number;
     totalCosts: number;
     netPnl: number;
-    endingValue: number;
-    roiOnPeakMarginPercent: number;
+    netPnlToPeakConcurrentMarginPercent: number;
     profitableTrades: number;
     losingTrades: number;
     breakEvenTrades: number;
@@ -1227,7 +1229,7 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
             <Metric
               label="NET P&L"
               value={`${report.netPnl >= 0 ? "+" : ""}${money(report.netPnl)} USDT`}
-              sub={`${report.roiOnPeakMarginPercent.toFixed(2)}% on peak required margin · ${money(report.totalCosts)} costs`}
+              sub={`${report.netPnlToPeakConcurrentMarginPercent.toFixed(2)}% net P&L / peak concurrent margin · ${money(report.totalCosts)} costs`}
             />
             <Metric
               label="PROFITABLE TRADES"
@@ -1235,8 +1237,8 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
               sub={`${report.profitableTrades} profitable / ${report.losingTrades} losing / ${report.breakEvenTrades} flat`}
             />
             <Metric
-              label="ENDING VALUE"
-              value={`${money(report.endingValue)} USDT`}
+              label="NET RESULT"
+              value={`${money(report.netPnl)} USDT`}
               sub={`${money(report.peakMarginRequired)} peak margin · ${report.peakConcurrentTrades} concurrent`}
             />
           </section>
@@ -1254,7 +1256,7 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
             <Metric
               label="LIQUIDATIONS"
               value={String(report.liquidations)}
-              sub={`${report.liquidationModel.replaceAll("_", " ")} · approximate prices`}
+              sub={`${report.simulationModel.replaceAll("_", " ")} · approximate prices`}
             />
           </section>
           <div className="section-title">
@@ -1443,12 +1445,12 @@ function MethodDetail({
   const byCoin = [...new Set(data.predictions.map((p) => p.coin.symbol))].map(
     (c) => {
       const x = data.predictions.filter(
-        (p) => p.coin.symbol === c && p.outcome !== "PENDING",
+        (p) => p.coin.symbol === c && (p.outcome === "CORRECT" || p.outcome === "INCORRECT"),
       );
       return {
         coin: c,
         total: x.length,
-        accuracy: x.length
+        targetHitRate: x.length
           ? (x.filter((p) => p.outcome === "CORRECT").length / x.length) * 100
           : 0,
       };
@@ -1478,7 +1480,7 @@ function MethodDetail({
         />
         <Metric
           label="BEST MARKET"
-          value={byCoin.sort((a, b) => b.accuracy - a.accuracy)[0]?.coin || "—"}
+          value={byCoin.sort((a, b) => b.targetHitRate - a.targetHitRate)[0]?.coin || "—"}
           sub="By historical target-hit rate"
         />
       </section>
@@ -1491,9 +1493,9 @@ function MethodDetail({
           <div>
             <b>{x.coin}</b>
             <span>
-              <i style={{ width: `${x.accuracy}%` }} />
+              <i style={{ width: `${x.targetHitRate}%` }} />
             </span>
-            <strong>{x.total ? x.accuracy.toFixed(1) : "—"}%</strong>
+            <strong>{x.total ? x.targetHitRate.toFixed(1) : "—"}%</strong>
             <small>{x.total} graded</small>
           </div>
         ))}
