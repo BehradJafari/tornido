@@ -1,6 +1,7 @@
 package io.tornado.api;
 
 import io.tornado.persistence.*;
+import io.tornado.datafetch.BinanceMarketDataClient;
 import org.springframework.stereotype.Service;
 import java.util.*;
 
@@ -9,7 +10,8 @@ public class ReportService {
     private static final java.math.BigDecimal MINIMUM_CORRECT_MOVE=new java.math.BigDecimal("0.003");
     private final PredictionRepository predictions;
     private final AnalysisRunRepository runs;
-    public ReportService(PredictionRepository predictions,AnalysisRunRepository runs){this.predictions=predictions;this.runs=runs;}
+    private final BinanceMarketDataClient market;
+    public ReportService(PredictionRepository predictions,AnalysisRunRepository runs,BinanceMarketDataClient market){this.predictions=predictions;this.runs=runs;this.market=market;}
 
     public List<CoinReport> coinReports(int minSamples,long horizon){
         Map<String,Map<String,Score>> scores=new TreeMap<>();
@@ -32,7 +34,7 @@ public class ReportService {
     public SuperReport superReport(int minSamples,long horizon){
         List<Prediction> graded=filter(predictions.findAllGraded(),horizon);
         Map<String,List<Prediction>> byCoin=new TreeMap<>();graded.forEach(p->byCoin.computeIfAbsent(p.getCoin().getSymbol(),x->new ArrayList<>()).add(p));
-        Map<String,List<Prediction>> latest=new HashMap<>();runs.findTopByOrderByCreatedAtDesc().ifPresent(r->predictions.findByAnalysisRunIdOrderByCoinSymbolAscMethodNameAsc(r.getId()).stream().filter(p->horizon==0||p.getHorizonSeconds()==horizon).forEach(p->latest.computeIfAbsent(p.getCoin().getSymbol(),x->new ArrayList<>()).add(p)));
+        Map<String,List<Prediction>> latest=new HashMap<>();runs.findTopByOrderByCreatedAtDesc().ifPresent(r->predictions.findByAnalysisRunIdOrderByCoinSymbolAscMethodNameAsc(r.getId()).stream().filter(p->p.getSignalVersion()==2&&p.getHorizonSeconds()==horizon).forEach(p->latest.computeIfAbsent(p.getCoin().getSymbol(),x->new ArrayList<>()).add(p)));
         List<CoinOpportunity> coins=new ArrayList<>();
         byCoin.forEach((coin,rows)->{
             Map<String,Score> methodScores=new HashMap<>();rows.forEach(p->methodScores.computeIfAbsent(p.getMethodName(),x->new Score()).add(p.getOutcome()==Outcome.CORRECT));
@@ -60,9 +62,9 @@ public class ReportService {
         if(request.leverage()<1||request.leverage()>125)throw new IllegalArgumentException("leverage must be between 1x and 125x");
         Set<String> selected=new TreeSet<>(request.methods());Map<GroupKey,List<Prediction>> groups=new HashMap<>();
         filter(predictions.findAllGraded(),request.horizon()).stream().filter(p->p.getAnalysisRun()!=null&&p.getCoin().getSymbol().equalsIgnoreCase(request.coin())&&selected.contains(p.getMethodName())).forEach(p->groups.computeIfAbsent(new GroupKey(p.getAnalysisRun().getId(),p.getCoin().getId(),p.getHorizonSeconds()),x->new ArrayList<>()).add(p));
-        List<TradeCandidate> candidates=new ArrayList<>();for(List<Prediction> rows:groups.values()){Map<String,Prediction> byMethod=new HashMap<>();rows.forEach(p->byMethod.put(p.getMethodName(),p));if(!byMethod.keySet().containsAll(selected))continue;int ups=0;for(String method:selected)if(byMethod.get(method).getPredictedDirection()==Direction.UP)ups++;if(ups*2==selected.size())continue;Prediction sample=byMethod.get(selected.iterator().next());if(sample.getPriceAtGrading()==null)continue;boolean up=ups*2>selected.size();candidates.add(new TradeCandidate(sample.getPredictedAt(),up,sample.getPriceAtPrediction().doubleValue(),sample.getPriceAtGrading().doubleValue(),mixCorrect(sample,up)));}
+        List<TradeCandidate> candidates=new ArrayList<>();for(List<Prediction> rows:groups.values()){Map<String,Prediction> byMethod=new HashMap<>();rows.forEach(p->byMethod.put(p.getMethodName(),p));if(!byMethod.keySet().containsAll(selected))continue;int ups=0;for(String method:selected)if(byMethod.get(method).getPredictedDirection()==Direction.UP)ups++;if(ups*2==selected.size())continue;Prediction sample=byMethod.get(selected.iterator().next());if(sample.getPriceAtGrading()==null)continue;boolean up=ups*2>selected.size();candidates.add(new TradeCandidate(sample.getPredictedAt(),sample.getPredictedAt().plusSeconds(sample.getHorizonSeconds()),sample.getCoin().getPair(),up,sample.getPriceAtPrediction().doubleValue(),sample.getPriceAtGrading().doubleValue(),mixCorrect(sample,up)));}
         candidates.sort(Comparator.comparing(TradeCandidate::time));
-        List<MoneyTrade> trades=new ArrayList<>();double totalPnl=0,peak=0,maxDrawdown=0;int wins=0,losses=0,liquidations=0,index=0;for(TradeCandidate c:candidates){double marketReturn=(c.exit()-c.entry())/c.entry(),directional=c.up()?marketReturn:-marketReturn,leveraged=directional*request.leverage();boolean liquidated=leveraged<=-1;double pnl=liquidated?-request.tradeAmount():request.tradeAmount()*leveraged;totalPnl+=pnl;peak=Math.max(peak,totalPnl);maxDrawdown=Math.max(maxDrawdown,peak-totalPnl);if(c.correct())wins++;else losses++;if(liquidated)liquidations++;trades.add(new MoneyTrade(++index,c.time(),c.up()?"LONG":"SHORT",c.entry(),c.exit(),marketReturn*100,pnl,totalPnl,liquidated));}
+        List<MoneyTrade> trades=new ArrayList<>();double totalPnl=0,peak=0,maxDrawdown=0;int wins=0,losses=0,liquidations=0,index=0;for(TradeCandidate c:candidates){double marketReturn=(c.exit()-c.entry())/c.entry(),directional=c.up()?marketReturn:-marketReturn,leveraged=directional*request.leverage();var range=market.priceRange(c.pair(),c.time(),c.target());double liquidationPrice=c.up()?c.entry()*(1.0-1.0/request.leverage()):c.entry()*(1.0+1.0/request.leverage());boolean liquidated=c.up()?range.low().doubleValue()<=liquidationPrice:range.high().doubleValue()>=liquidationPrice;double pnl=liquidated?-request.tradeAmount():request.tradeAmount()*leveraged;totalPnl+=pnl;peak=Math.max(peak,totalPnl);maxDrawdown=Math.max(maxDrawdown,peak-totalPnl);if(c.correct())wins++;else losses++;if(liquidated)liquidations++;trades.add(new MoneyTrade(++index,c.time(),c.up()?"LONG":"SHORT",c.entry(),c.exit(),marketReturn*100,pnl,totalPnl,liquidated));}
         int executed=trades.size();double committed=request.tradeAmount()*executed,winRate=executed==0?0:wins*100.0/executed,roi=committed==0?0:totalPnl*100/committed,average=executed==0?0:totalPnl/executed;return new MoneyReport(request.coin().toUpperCase(),request.horizon(),List.copyOf(selected),executed,request.tradeAmount(),request.leverage(),committed,totalPnl,committed+totalPnl,roi,wins,losses,winRate,liquidations,maxDrawdown,average,trades);
     }
 
@@ -80,12 +82,12 @@ public class ReportService {
     private double wilson(long correct,long total){if(total==0)return 0;double z=1.96,p=(double)correct/total,z2=z*z;return (p+z2/(2*total)-z*Math.sqrt((p*(1-p)+z2/(4*total))/total))/(1+z2/total);}
     private void choose(List<String> names,int size,int start,List<String> selected,java.util.function.Consumer<List<String>> consumer){if(selected.size()==size){consumer.accept(List.copyOf(selected));return;}for(int i=start;i<=names.size()-(size-selected.size());i++){selected.add(names.get(i));choose(names,size,i+1,selected,consumer);selected.removeLast();}}
     private void validateMixSize(int size){if(size<2||size>4)throw new IllegalArgumentException("mix size must be 2, 3, or 4");}
-    private List<Prediction> filter(List<Prediction> source,long horizon){return horizon==0?source:source.stream().filter(p->p.getHorizonSeconds()==horizon).toList();}
+    private List<Prediction> filter(List<Prediction> source,long horizon){if(!Set.of(60L,900L,1800L,3600L,14400L,43200L,86400L).contains(horizon))throw new IllegalArgumentException("select one time horizon; combined horizons are correlated and cannot be ranked as independent samples");return source.stream().filter(p->p.getHorizonSeconds()==horizon).toList();}
     private boolean mixCorrect(Prediction p,boolean predictedUp){if(p.getPriceAtGrading()==null)return false;var change=p.getPriceAtGrading().subtract(p.getPriceAtPrediction()).divide(p.getPriceAtPrediction(),12,java.math.RoundingMode.HALF_UP);return predictedUp?change.compareTo(MINIMUM_CORRECT_MOVE)>=0:change.compareTo(MINIMUM_CORRECT_MOVE.negate())<=0;}
     private static class Score {long total,correct;void add(boolean hit){total++;if(hit)correct++;}double accuracy(){return total==0?0:correct*100.0/total;}}
     private static class MixScore {long totalPredictions,sameDirectionPredictions,sameDirectionCorrect,samples,correct;double accuracy(){return samples==0?0:correct*100.0/samples;}}
     private record GroupKey(long runId,long coinId,long horizon){}
-    private record TradeCandidate(java.time.Instant time,boolean up,double entry,double exit,boolean correct){}
+    private record TradeCandidate(java.time.Instant time,java.time.Instant target,String pair,boolean up,double entry,double exit,boolean correct){}
     public record MethodAccuracy(String method,long samples,long correct,double accuracy){}
     public record CoinReport(String coin,List<MethodAccuracy> methods){}
     public record MixAccuracy(List<String> methods,long totalPredictions,long sameDirectionPredictions,long sameDirectionCorrect,long samples,long correct,double accuracy){}

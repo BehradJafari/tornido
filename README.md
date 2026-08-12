@@ -1,6 +1,6 @@
 # Tornado
 
-Tornado is a local crypto signal tracker and self-grading backtester. It downloads Binance OHLCV candles, evaluates a catalog of ta4j rules, records an UP/DOWN call for each method, automatically grades 1h/4h/12h/24h slices, and presents rolling accuracy in a dark React dashboard. A call is correct only when price moves at least 0.30% in the predicted direction.
+Tornado is a local crypto signal tracker and self-grading backtester. It downloads completed Binance OHLCV candles, evaluates a catalog of ta4j rules, records actionable UP/DOWN calls, automatically grades 1m/15m/30m/1h/4h/12h/24h slices, and presents rolling target-hit rates in a dark React dashboard. A call hits its target only when price moves at least 0.30% in the predicted direction.
 
 ## Stack
 
@@ -64,17 +64,19 @@ Defaults live in `src/main/resources/application.yml`. Every operational value h
 | `SNAPSHOT_INTERVAL` | `15m` | scheduled analysis cadence |
 | `SNAPSHOT_INITIAL_DELAY` | `10s` | delay before the first automatic analysis after startup |
 | `GRADING_INTERVAL` | `1m` | how often due calls are graded |
-| `GRADING_HORIZON` | `15m` | legacy settings value; analyses use automatic 1h/4h/12h/24h slices |
+| `GRADING_HORIZON` | `15m` | legacy settings value; analyses use the seven automatic slices |
 | `CANDLE_INTERVAL` | `5m` | Binance kline interval |
 | `CANDLE_LIMIT` | `250` | warm-up candle count |
 | `BINANCE_REST_URL` | `https://api.binance.com` | public REST base URL |
 | `BINANCE_WS_URL` | `wss://stream.binance.com:9443` | public stream base URL |
 
-The Settings API/UI persists runtime snapshot interval and horizon values. The scheduling trigger itself uses the startup configuration, so restart after changing the snapshot cadence; new predictions immediately use the persisted grading horizon.
+The Settings API/UI persists snapshot interval and legacy horizon values. The scheduling trigger uses startup configuration, so restart after changing the snapshot cadence. Predictions always use the seven automatic horizons.
 
 ## Strategy catalog
 
-`StrategyDefinition` contains small, independent ta4j-backed definitions for SMA, EMA, WMA, RSI, MACD, Stochastic, CCI, DMI, Williams %R, Bollinger Bands, ROC, Chaikin Money Flow, OBV, Ichimoku, Aroon and Parabolic SAR. Each uses ta4j indicators and built-in crossover/over/under rules. When no threshold crossing occurs on the latest candle, the current relative indicator position provides a deterministic direction.
+`StrategyDefinition` contains small, independent ta4j-backed definitions for SMA, EMA, WMA, RSI, MACD, Stochastic, CCI, ADX/DMI, Williams %R, Bollinger Bands, ROC, Chaikin Money Flow, OBV, Ichimoku, Aroon and Parabolic SAR. Trend strategies use current relative position when no fresh crossover occurs. Threshold oscillators and weak ADX conditions return `NEUTRAL`; neutral results are not persisted as predictions or counted as votes.
+
+Signals use only fully closed candles. The prediction entry price is fetched separately from the live ticker. Due predictions are graded using the first Binance aggregate trade at or after the exact `predictedAt + horizon` timestamp, so scheduler delays and restarts do not move the evaluation point.
 
 “Every indicator” is not literally a valid trading-strategy set: ta4j also contains transforms, helpers, statistics, bar-price accessors, and indicators without directional semantics. Tornado therefore exposes an extensible catalog of applicable, interpretable strategy families. To add one, add an enum entry in `src/main/java/io/tornado/strategies/StrategyDefinition.java`; it automatically appears in snapshots and `GET /api/methods`.
 
@@ -94,9 +96,9 @@ Twenty USDT pairs are seeded on an empty database. Coins added or removed in Set
 - `GET /api/reports/super/excel` (downloads an XLSX containing all coins and the best 1–6 method mixes for every checker slice)
 - `POST /api/reports/money` with coin, horizon, 2–8 methods, USDT margin and 1–125x leverage (full-history gross futures simulation from the first eligible mixed prediction to the latest)
 
-Report endpoints accept `horizon=0|60|900|1800|3600|14400|43200|86400`; `0` means all slices. Every new manual or scheduled analysis automatically creates 1-minute, 15-minute, 30-minute, 1-hour, 4-hour, 12-hour, and 24-hour checker predictions.
+Ranked report endpoints accept `horizon=60|900|1800|3600|14400|43200|86400` and require one slice at a time. Combining the seven correlated outcomes from one signal would overstate the independent sample count. Every new manual or scheduled analysis creates predictions for all seven slices when a strategy emits an actionable signal.
 
-The Money report is a historical scenario tool, not a profit forecast. Its gross P&L intentionally excludes fees, funding, spread and slippage; simulated liquidation caps a trade loss at its supplied margin and does not reproduce an exchange's full maintenance-margin engine.
+The Money report is a historical scenario tool, not a profit forecast. Its gross P&L intentionally excludes fees, funding, spread and slippage. Liquidation checks Binance one-minute high/low data across the trade path and caps a detected loss at supplied margin, but it does not reproduce an exchange's maintenance-margin engine.
 - `GET /api/chart/{pair}?interval=15m&limit=120`
 - `GET /api/predictions?coin=&method=&from=&to=`
 - `GET /api/leaderboard?coin=&window=7d`
@@ -104,6 +106,8 @@ The Money report is a historical scenario tool, not a profit forecast. Its gross
 - `GET/PUT /api/settings`
 
 Exchange errors use bounded retry/backoff and are isolated per coin so one unavailable Binance pair cannot crash a full scheduled cycle.
+
+Prediction rows carry a signal-semantics version. Data created before the neutral-signal, closed-candle and exact-time grading corrections remains available in history but is excluded from current rankings and simulations.
 
 ## Verification
 

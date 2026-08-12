@@ -386,7 +386,7 @@ function SuperAnalysis({ prices }: { prices: Record<string, string> }) {
         <div className="hero-score">
           <small>VALUE SCORE</small>
           <strong>{top ? top.valueScore.toFixed(1) : "—"}</strong>
-          <em>Conservative accuracy</em>
+          <em>Conservative target-hit score</em>
         </div>
         <div
           className={`hero-call ${(top?.currentDirection || "").toLowerCase()}`}
@@ -405,7 +405,7 @@ function SuperAnalysis({ prices }: { prices: Record<string, string> }) {
           />
         </div>
         <p>
-          Value score uses the 95% Wilson lower bound. It rewards accuracy and
+          Value score uses the 95% Wilson lower bound. It rewards target hits and
           sample size while penalizing small, lucky samples.
         </p>
       </div>
@@ -464,7 +464,7 @@ function SuperAnalysis({ prices }: { prices: Record<string, string> }) {
             </div>
             <dl>
               <div>
-                <dt>Raw accuracy</dt>
+                <dt>Raw target-hit rate</dt>
                 <dd>
                   {c.rawAccuracy.toFixed(1)}% <small>({c.samples})</small>
                 </dd>
@@ -774,7 +774,7 @@ function Methods({
   rows: Leader[];
   open: (s: string) => void;
 }) {
-  const [horizon, setHorizon] = useState(0),
+  const [horizon, setHorizon] = useState(3600),
     [filtered, setFiltered] = useState(rows);
   useEffect(() => {
     api<Leader[]>(`/api/leaderboard?window=30d&horizon=${horizon}`).then(
@@ -1095,8 +1095,9 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
       <div className="money-warning">
         <b>Historical simulator—not a profit guarantee.</b> Gross results
         exclude trading fees, funding, spread, slippage and exchange-specific
-        liquidation rules. Signal success uses the same ±0.30% rule as Coin
-        Mix; P&amp;L uses the complete price movement.
+        maintenance-margin rules. Liquidation checks the full one-minute
+        high/low path; signal success uses the same ±0.30% target-hit rule as
+        Coin Mix.
       </div>
       <form className="money-builder panel" onSubmit={run}>
         <div className="money-fields">
@@ -1327,8 +1328,8 @@ function RankTable({
     <section className="panel rank-table">
       <div className="rank-head">
         <span>RANK / METHOD</span>
-        <span>ACCURACY</span>
-        <span>CORRECT</span>
+        <span>TARGET HIT</span>
+        <span>HITS</span>
         <span>SAMPLES</span>
       </div>
       {rows.map((x, i) => (
@@ -1398,7 +1399,7 @@ function MethodDetail({
       <HorizonFilter value={horizon} setValue={setHorizon} />
       <section className="metrics">
         <Metric
-          label="LIFETIME ACCURACY"
+          label="TARGET-HIT RATE"
           value={`${data.accuracy.toFixed(1)}%`}
           sub={`${data.correct}/${data.graded} correct`}
         />
@@ -1410,11 +1411,11 @@ function MethodDetail({
         <Metric
           label="BEST MARKET"
           value={byCoin.sort((a, b) => b.accuracy - a.accuracy)[0]?.coin || "—"}
-          sub="By historical accuracy"
+          sub="By historical target-hit rate"
         />
       </section>
       <div className="section-title">
-        <h2>Accuracy by market</h2>
+        <h2>Target-hit rate by market</h2>
         <span>HISTORICAL</span>
       </div>
       <section className="coin-bars panel">
@@ -1626,7 +1627,7 @@ function horizonLabel(seconds: number) {
 function HorizonFilter({
   value,
   setValue,
-  includeAll = true,
+  includeAll = false,
 }: {
   value: number;
   setValue: (n: number) => void;
