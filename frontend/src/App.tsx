@@ -45,8 +45,10 @@ type Prediction = {
 type Leader = {
   method: string;
   total: number;
-  correct: number;
-  accuracy: number;
+  targetCorrect: number;
+  targetHitRate: number;
+  directionalCorrect: number;
+  directionalAccuracy: number;
 };
 type Candle = {
   time: number;
@@ -318,24 +320,29 @@ function SuperAnalysis({ prices }: { prices: Record<string, string> }) {
   type C = {
     coin: string;
     samples: number;
-    rawAccuracy: number;
+    targetCorrect: number;
+    targetHitRate: number;
+    directionalCorrect: number;
+    directionalAccuracy: number;
     valueScore: number;
     bestMethod?: string;
-    bestMethodAccuracy: number;
+    bestMethodTargetHitRate: number;
     bestMix: string[];
-    bestMixAccuracy: number;
+    bestMixTargetHitRate: number;
     bestMixSamples: number;
     currentDirection: string;
-    currentConfidence: number;
-    currentSignals: number;
+    consensusStrength: number;
+    weightedSignals: number;
   };
   const [data, setData] = useState<{
       coins: C[];
       topMixes: {
         methods: string[];
         samples: number;
-        correct: number;
-        accuracy: number;
+        targetCorrect: number;
+        targetHitRate: number;
+        directionalCorrect: number;
+        directionalAccuracy: number;
       }[];
     }>(),
     [min, setMin] = useState(1),
@@ -379,7 +386,7 @@ function SuperAnalysis({ prices }: { prices: Record<string, string> }) {
           <h2>{top?.coin || "Collecting evidence"}</h2>
           <p>
             {top
-              ? `${top.currentDirection} consensus · ${top.currentConfidence.toFixed(0)}% agreement across ${top.currentSignals} current signals`
+              ? `${top.currentDirection} consensus · ${top.consensusStrength.toFixed(0)}% weighted agreement across ${top.weightedSignals} statistically supported signals`
               : "Run and grade more analyses to identify the strongest market."}
           </p>
         </div>
@@ -415,7 +422,7 @@ function SuperAnalysis({ prices }: { prices: Record<string, string> }) {
           value={top?.coin || "—"}
           sub={
             top
-              ? `${top.rawAccuracy.toFixed(1)}% raw · ${top.samples} samples`
+              ? `${top.targetHitRate.toFixed(1)}% target · ${top.directionalAccuracy.toFixed(1)}% directional · ${top.samples} samples`
               : "No graded data"
           }
         />
@@ -424,13 +431,13 @@ function SuperAnalysis({ prices }: { prices: Record<string, string> }) {
           value={top?.bestMethod || "—"}
           sub={
             top?.bestMethod
-              ? `${top.bestMethodAccuracy.toFixed(1)}% on ${top.coin}`
+              ? `${top.bestMethodTargetHitRate.toFixed(1)}% target-hit rate on ${top.coin}`
               : "More evidence needed"
           }
         />
         <Metric
           label="STRONGEST GLOBAL MIX"
-          value={mix ? `${mix.accuracy.toFixed(1)}%` : "—"}
+          value={mix ? `${mix.targetHitRate.toFixed(1)}%` : "—"}
           sub={
             mix
               ? `${mix.methods.join(" + ")} · ${mix.samples} votes`
@@ -466,19 +473,23 @@ function SuperAnalysis({ prices }: { prices: Record<string, string> }) {
               <div>
                 <dt>Raw target-hit rate</dt>
                 <dd>
-                  {c.rawAccuracy.toFixed(1)}% <small>({c.samples})</small>
+                  {c.targetHitRate.toFixed(1)}% <small>({c.samples})</small>
                 </dd>
               </div>
               <div>
-                <dt>Current confidence</dt>
-                <dd>{c.currentConfidence.toFixed(0)}%</dd>
+                <dt>Directional accuracy</dt>
+                <dd>{c.directionalAccuracy.toFixed(1)}%</dd>
+              </div>
+              <div>
+                <dt>Consensus strength</dt>
+                <dd>{c.consensusStrength.toFixed(0)}%</dd>
               </div>
               <div>
                 <dt>Best method</dt>
                 <dd>
                   {c.bestMethod || "—"}{" "}
                   <small>
-                    {c.bestMethod ? `${c.bestMethodAccuracy.toFixed(0)}%` : ""}
+                    {c.bestMethod ? `${c.bestMethodTargetHitRate.toFixed(0)}%` : ""}
                   </small>
                 </dd>
               </div>
@@ -488,7 +499,7 @@ function SuperAnalysis({ prices }: { prices: Record<string, string> }) {
                   {c.bestMix.length ? c.bestMix.join(" + ") : "—"}{" "}
                   <small>
                     {c.bestMix.length
-                      ? `${c.bestMixAccuracy.toFixed(0)}% / ${c.bestMixSamples} votes`
+                      ? `${c.bestMixTargetHitRate.toFixed(0)}% / ${c.bestMixSamples} votes`
                       : ""}
                   </small>
                 </dd>
@@ -514,9 +525,9 @@ function SuperAnalysis({ prices }: { prices: Record<string, string> }) {
               ))}
             </div>
             <div className="mix-score">
-              <strong>{x.accuracy.toFixed(1)}%</strong>
+              <strong>{x.targetHitRate.toFixed(1)}%</strong>
               <small>
-                {x.correct}/{x.samples} correct
+                {x.targetCorrect}/{x.samples} target · {x.directionalAccuracy.toFixed(1)}% directional
               </small>
             </div>
           </article>
@@ -795,10 +806,10 @@ function Methods({
             <div
               className="donut"
               style={{
-                background: `conic-gradient(#72e3a2 ${r.accuracy}%,#232a30 0)`,
+                background: `conic-gradient(#72e3a2 ${r.targetHitRate}%,#232a30 0)`,
               }}
             >
-              <span>{r.accuracy.toFixed(0)}%</span>
+              <span>{r.targetHitRate.toFixed(0)}%</span>
             </div>
             <ChevronRight />
           </button>
@@ -817,8 +828,10 @@ function CoinReports({ coins }: { coins: Coin[] }) {
         methods: {
           method: string;
           samples: number;
-          correct: number;
-          accuracy: number;
+          targetCorrect: number;
+          targetHitRate: number;
+          directionalCorrect: number;
+          directionalAccuracy: number;
         }[];
       }[]
     >([]),
@@ -831,8 +844,10 @@ function CoinReports({ coins }: { coins: Coin[] }) {
           sameDirectionPredictions: number;
           sameDirectionCorrect: number;
           samples: number;
-          correct: number;
-          accuracy: number;
+          targetCorrect: number;
+          targetHitRate: number;
+          directionalCorrect: number;
+          directionalAccuracy: number;
         }[];
       }[]
     >([]),
@@ -872,17 +887,17 @@ function CoinReports({ coins }: { coins: Coin[] }) {
       />
       <section className="metrics">
         <Metric
-          label="MOST ACCURATE METHOD"
+          label="BEST TARGET-HIT METHOD"
           value={report?.methods[0]?.method || "—"}
           sub={
             report?.methods[0]
-              ? `${report.methods[0].accuracy.toFixed(1)}% · ${report.methods[0].samples} samples`
+              ? `${report.methods[0].targetHitRate.toFixed(1)}% target · ${report.methods[0].directionalAccuracy.toFixed(1)}% directional · ${report.methods[0].samples} samples`
               : "More data required"
           }
         />
         <Metric
           label={`BEST ${size}-METHOD MIX`}
-          value={mixes[0] ? `${mixes[0].accuracy.toFixed(1)}%` : "—"}
+          value={mixes[0] ? `${mixes[0].targetHitRate.toFixed(1)}%` : "—"}
           sub={mixes[0]?.methods.join(" + ") || "More data required"}
         />
         <Metric
@@ -893,14 +908,15 @@ function CoinReports({ coins }: { coins: Coin[] }) {
       </section>
       <div className="section-title">
         <h2>{selected || "Coin"} method ranking</h2>
-        <span>ACCURACY BY COIN</span>
+        <span>TARGET + DIRECTION BY COIN</span>
       </div>
       <RankTable
         rows={(report?.methods || []).map((x) => ({
           name: x.method,
           samples: x.samples,
-          correct: x.correct,
-          accuracy: x.accuracy,
+          targetCorrect: x.targetCorrect,
+          targetHitRate: x.targetHitRate,
+          directionalAccuracy: x.directionalAccuracy,
         }))}
       />
       <div className="section-title">
@@ -935,8 +951,10 @@ function MixReports() {
         sameDirectionPredictions: number;
         sameDirectionCorrect: number;
         samples: number;
-        correct: number;
-        accuracy: number;
+        targetCorrect: number;
+        targetHitRate: number;
+        directionalCorrect: number;
+        directionalAccuracy: number;
       }[]
     >([]),
     [size, setSize] = useState(3),
@@ -982,7 +1000,7 @@ function MixReports() {
         />
         <Metric
           label="BEST MIX"
-          value={data[0] ? `${data[0].accuracy.toFixed(1)}%` : "—"}
+          value={data[0] ? `${data[0].targetHitRate.toFixed(1)}%` : "—"}
           sub={data[0]?.methods.join(" + ") || "More data required"}
         />
         <Metric
@@ -1018,28 +1036,41 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
     coin: string;
     horizon: number;
     methods: string[];
+    liquidationModel: string;
     executedTrades: number;
     tradeAmount: number;
     leverage: number;
-    totalMarginUsed: number;
+    totalMarginAllocated: number;
+    peakConcurrentTrades: number;
+    peakMarginRequired: number;
     grossPnl: number;
+    totalCosts: number;
+    netPnl: number;
     endingValue: number;
-    roiPercent: number;
-    wins: number;
-    losses: number;
-    winRate: number;
+    roiOnPeakMarginPercent: number;
+    profitableTrades: number;
+    losingTrades: number;
+    breakEvenTrades: number;
+    profitWinRate: number;
+    targetHits: number;
+    targetMisses: number;
+    targetHitRate: number;
     liquidations: number;
-    maxDrawdown: number;
-    averagePnlPerTrade: number;
+    realizedPnlDrawdown: number;
+    averageNetPnlPerTrade: number;
     trades: {
       number: number;
       time: string;
+      targetTime: string;
       side: string;
       entryPrice: number;
       exitPrice: number;
       marketMovePercent: number;
-      pnl: number;
-      cumulativePnl: number;
+      approximateLiquidationPrice: number;
+      grossPnl: number;
+      costs: number;
+      netPnl: number;
+      cumulativeNetPnl: number;
       liquidated: boolean;
     }[];
   };
@@ -1049,6 +1080,10 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
     [horizon, setHorizon] = useState(3600),
     [amount, setAmount] = useState(100),
     [leverage, setLeverage] = useState(5),
+    [takerFee, setTakerFee] = useState(0.05),
+    [slippage, setSlippage] = useState(0.02),
+    [spread, setSpread] = useState(0.02),
+    [funding, setFunding] = useState(0),
     [report, setReport] = useState<R>(),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -1081,6 +1116,10 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
             methods: selected,
             tradeAmount: amount,
             leverage,
+            takerFeePercent: takerFee,
+            slippagePercent: slippage,
+            spreadPercent: spread,
+            fundingRatePercent: funding,
           }),
         }),
       );
@@ -1093,11 +1132,10 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
   return (
     <>
       <div className="money-warning">
-        <b>Historical simulator—not a profit guarantee.</b> Gross results
-        exclude trading fees, funding, spread, slippage and exchange-specific
-        maintenance-margin rules. Liquidation checks the full one-minute
-        high/low path; signal success uses the same ±0.30% target-hit rule as
-        Coin Mix.
+        <b>Historical simulator—not a profit guarantee.</b> Net results include
+        your configured fee, spread, slippage and funding estimates. Boundary
+        minutes use exact aggregate trades. Liquidation is a simple approximate
+        leverage model—not Binance or Bitunix maintenance-margin logic.
       </div>
       <form className="money-builder panel" onSubmit={run}>
         <div className="money-fields">
@@ -1142,6 +1180,26 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
             />
             <span>×</span>
           </label>
+          <label>
+            TAKER FEE / SIDE
+            <input type="number" min="0" max="5" step="0.001" value={takerFee} onChange={(e) => setTakerFee(+e.target.value)} />
+            <span>%</span>
+          </label>
+          <label>
+            SLIPPAGE / SIDE
+            <input type="number" min="0" max="5" step="0.001" value={slippage} onChange={(e) => setSlippage(+e.target.value)} />
+            <span>%</span>
+          </label>
+          <label>
+            ROUND-TRIP SPREAD
+            <input type="number" min="0" max="5" step="0.001" value={spread} onChange={(e) => setSpread(+e.target.value)} />
+            <span>%</span>
+          </label>
+          <label>
+            FUNDING / TRADE
+            <input type="number" min="0" max="5" step="0.001" value={funding} onChange={(e) => setFunding(+e.target.value)} />
+            <span>%</span>
+          </label>
         </div>
         <div className="method-picker">
           <small>METHOD MIX · SELECT 2–8</small>
@@ -1167,36 +1225,36 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
         <>
           <section className="metrics money-metrics">
             <Metric
-              label="GROSS P&L"
-              value={`${report.grossPnl >= 0 ? "+" : ""}${money(report.grossPnl)} USDT`}
-              sub={`${report.roiPercent.toFixed(2)}% on deployed margin`}
+              label="NET P&L"
+              value={`${report.netPnl >= 0 ? "+" : ""}${money(report.netPnl)} USDT`}
+              sub={`${report.roiOnPeakMarginPercent.toFixed(2)}% on peak required margin · ${money(report.totalCosts)} costs`}
             />
             <Metric
-              label="SIGNAL SUCCESS RATE"
-              value={`${report.winRate.toFixed(1)}%`}
-              sub={`${report.wins} successful / ${report.losses} below threshold or wrong`}
+              label="PROFITABLE TRADES"
+              value={`${report.profitWinRate.toFixed(1)}%`}
+              sub={`${report.profitableTrades} profitable / ${report.losingTrades} losing / ${report.breakEvenTrades} flat`}
             />
             <Metric
               label="ENDING VALUE"
               value={`${money(report.endingValue)} USDT`}
-              sub={`${money(report.totalMarginUsed)} USDT total margin used`}
+              sub={`${money(report.peakMarginRequired)} peak margin · ${report.peakConcurrentTrades} concurrent`}
             />
           </section>
           <section className="metrics money-metrics">
             <Metric
-              label="AVERAGE / TRADE"
-              value={`${money(report.averagePnlPerTrade)} USDT`}
-              sub={`${report.executedTrades} eligible trades from first to latest`}
+              label="TARGET-HIT RATE"
+              value={`${report.targetHitRate.toFixed(1)}%`}
+              sub={`${report.targetHits} hits / ${report.targetMisses} misses · independent from profit`}
             />
             <Metric
-              label="MAX DRAWDOWN"
-              value={`${money(report.maxDrawdown)} USDT`}
-              sub="Peak-to-trough simulated loss"
+              label="REALIZED P&L DRAWDOWN"
+              value={`${money(report.realizedPnlDrawdown)} USDT`}
+              sub={`${money(report.averageNetPnlPerTrade)} average net / trade`}
             />
             <Metric
               label="LIQUIDATIONS"
               value={String(report.liquidations)}
-              sub="Loss capped at trade margin"
+              sub={`${report.liquidationModel.replaceAll("_", " ")} · approximate prices`}
             />
           </section>
           <div className="section-title">
@@ -1213,7 +1271,7 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
               <span>ENTRY</span>
               <span>EXIT</span>
               <span>MARKET MOVE</span>
-              <span>P&amp;L</span>
+              <span>NET P&amp;L</span>
               <span>CUMULATIVE</span>
             </div>
             {report.trades.map((t) => (
@@ -1229,12 +1287,12 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
                 >
                   {t.marketMovePercent.toFixed(2)}%
                 </span>
-                <b className={t.pnl >= 0 ? "positive" : "negative"}>
+                <b className={t.netPnl >= 0 ? "positive" : "negative"} title={`Approx. liquidation $${money(t.approximateLiquidationPrice)} · gross ${money(t.grossPnl)} · costs ${money(t.costs)}`}>
                   {t.liquidated
                     ? "LIQUIDATED"
-                    : `${t.pnl >= 0 ? "+" : ""}${money(t.pnl)}`}
+                    : `${t.netPnl >= 0 ? "+" : ""}${money(t.netPnl)}`}
                 </b>
-                <strong>{money(t.cumulativePnl)}</strong>
+                <strong>{money(t.cumulativeNetPnl)}</strong>
               </article>
             ))}
           </section>
@@ -1253,8 +1311,10 @@ function MixGrid({
     sameDirectionPredictions: number;
     sameDirectionCorrect: number;
     samples: number;
-    correct: number;
-    accuracy: number;
+    targetCorrect: number;
+    targetHitRate: number;
+    directionalCorrect: number;
+    directionalAccuracy: number;
   }[];
   empty: string;
 }) {
@@ -1269,12 +1329,13 @@ function MixGrid({
             ))}
           </div>
           <div className="mix-score">
-            <strong>{x.accuracy.toFixed(1)}%</strong>
+            <strong>{x.targetHitRate.toFixed(1)}%</strong>
+            <small>DIRECTIONAL · {x.directionalAccuracy.toFixed(1)}%</small>
             <small>ALL PREDICTIONS · {x.totalPredictions}</small>
             <small>SAME DIRECTION · {x.sameDirectionPredictions}</small>
             <small>SAME-DIRECTION CORRECT · {x.sameDirectionCorrect}</small>
             <small>DECISIVE PREDICTIONS · {x.samples}</small>
-            <small>CORRECT PREDICTIONS · {x.correct}</small>
+            <small>TARGET HITS · {x.targetCorrect}</small>
           </div>
         </article>
       ))}
@@ -1322,14 +1383,14 @@ function ReportFilters({
 function RankTable({
   rows,
 }: {
-  rows: { name: string; samples: number; correct: number; accuracy: number }[];
+  rows: { name: string; samples: number; targetCorrect: number; targetHitRate: number; directionalAccuracy: number }[];
 }) {
   return (
     <section className="panel rank-table">
       <div className="rank-head">
         <span>RANK / METHOD</span>
         <span>TARGET HIT</span>
-        <span>HITS</span>
+        <span>DIRECTIONAL</span>
         <span>SAMPLES</span>
       </div>
       {rows.map((x, i) => (
@@ -1339,12 +1400,12 @@ function RankTable({
             <b>{x.name}</b>
           </span>
           <span>
-            <strong>{x.accuracy.toFixed(1)}%</strong>
+            <strong>{x.targetHitRate.toFixed(1)}%</strong>
             <u>
-              <i style={{ width: `${x.accuracy}%` }} />
+              <i style={{ width: `${x.targetHitRate}%` }} />
             </u>
           </span>
-          <span>{x.correct}</span>
+          <span>{x.directionalAccuracy.toFixed(1)}%</span>
           <span>{x.samples}</span>
         </article>
       ))}
@@ -1366,8 +1427,10 @@ function MethodDetail({
   const [data, setData] = useState<{
       total: number;
       graded: number;
-      correct: number;
-      accuracy: number;
+      targetCorrect: number;
+      targetHitRate: number;
+      directionalCorrect: number;
+      directionalAccuracy: number;
       predictions: Prediction[];
     }>(),
     [horizon, setHorizon] = useState(3600);
@@ -1400,8 +1463,13 @@ function MethodDetail({
       <section className="metrics">
         <Metric
           label="TARGET-HIT RATE"
-          value={`${data.accuracy.toFixed(1)}%`}
-          sub={`${data.correct}/${data.graded} correct`}
+          value={`${data.targetHitRate.toFixed(1)}%`}
+          sub={`${data.targetCorrect}/${data.graded} target hits`}
+        />
+        <Metric
+          label="DIRECTIONAL ACCURACY"
+          value={`${data.directionalAccuracy.toFixed(1)}%`}
+          sub={`${data.directionalCorrect}/${data.graded} correct directions`}
         />
         <Metric
           label="TOTAL SIGNALS"

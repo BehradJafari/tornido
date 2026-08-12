@@ -76,7 +76,7 @@ The Settings API/UI persists snapshot interval and legacy horizon values. The sc
 
 `StrategyDefinition` contains small, independent ta4j-backed definitions for SMA, EMA, WMA, RSI, MACD, Stochastic, CCI, ADX/DMI, Williams %R, Bollinger Bands, ROC, Chaikin Money Flow, OBV, Ichimoku, Aroon and Parabolic SAR. Trend strategies use current relative position when no fresh crossover occurs. Threshold oscillators and weak ADX conditions return `NEUTRAL`; neutral results are not persisted as predictions or counted as votes.
 
-Signals use only fully closed candles. The prediction entry price is fetched separately from the live ticker. Due predictions are graded using the first Binance aggregate trade at or after the exact `predictedAt + horizon` timestamp, so scheduler delays and restarts do not move the evaluation point.
+Signals use only fully closed candles. Tornado stores the signal candle timestamp/price separately from the later live-ticker execution timestamp/price. Due predictions are graded using the first Binance aggregate trade at or after the exact `executionTimestamp + horizon`; observations delayed by more than 60 seconds are rejected and left pending for retry. The actual price timestamp, delay, attempt count and latest grading error are persisted for auditability.
 
 “Every indicator” is not literally a valid trading-strategy set: ta4j also contains transforms, helpers, statistics, bar-price accessors, and indicators without directional semantics. Tornado therefore exposes an extensible catalog of applicable, interpretable strategy families. To add one, add an enum entry in `src/main/java/io/tornado/strategies/StrategyDefinition.java`; it automatically appears in snapshots and `GET /api/methods`.
 
@@ -94,11 +94,13 @@ Twenty USDT pairs are seeded on an empty database. Coins added or removed in Set
 - `GET /api/reports/coin-mixes?size=4&minSamples=3` (best 2-, 3-, or 4-method mixes ranked separately for every coin)
 - `GET /api/reports/super?minSamples=5` (confidence-adjusted coin opportunities, current weighted consensus, best methods and mixes)
 - `GET /api/reports/super/excel` (downloads an XLSX containing all coins and the best 1–6 method mixes for every checker slice)
-- `POST /api/reports/money` with coin, horizon, 2–8 methods, USDT margin and 1–125x leverage (full-history gross futures simulation from the first eligible mixed prediction to the latest)
+- `POST /api/reports/money` with coin, horizon, 2–8 methods, USDT margin, 1–125x leverage, and optional `takerFeePercent`, `slippagePercent`, `spreadPercent`, and `fundingRatePercent`
 
 Ranked report endpoints accept `horizon=60|900|1800|3600|14400|43200|86400` and require one slice at a time. Combining the seven correlated outcomes from one signal would overstate the independent sample count. Every new manual or scheduled analysis creates predictions for all seven slices when a strategy emits an actionable signal.
 
-The Money report is a historical scenario tool, not a profit forecast. Its gross P&L intentionally excludes fees, funding, spread and slippage. Liquidation checks Binance one-minute high/low data across the trade path and caps a detected loss at supplied margin, but it does not reproduce an exchange's maintenance-margin engine.
+The Money report is a historical scenario tool, not a profit forecast. It reports gross P&L, configurable taker fees/slippage/spread/funding estimates, and net P&L separately. Profitable-trade rate is based on positive net P&L; target-hit rate remains a separate ±0.30% research metric. Liquidation uses aggregate trades for partial first/last minutes and one-minute highs/lows only for fully covered middle minutes. Its `SIMPLE_APPROXIMATE` liquidation price is not an exchange maintenance-margin, mark-price, wallet-balance or risk-tier calculation.
+
+Money reports also expose peak concurrent trades, peak required margin, ROI on peak margin and realized closed-trade drawdown. Realized drawdown does not claim to measure every intratrade unrealized equity fluctuation.
 - `GET /api/chart/{pair}?interval=15m&limit=120`
 - `GET /api/predictions?coin=&method=&from=&to=`
 - `GET /api/leaderboard?coin=&window=7d`
@@ -107,7 +109,9 @@ The Money report is a historical scenario tool, not a profit forecast. Its gross
 
 Exchange errors use bounded retry/backoff and are isolated per coin so one unavailable Binance pair cannot crash a full scheduled cycle.
 
-Prediction rows carry a signal-semantics version. Data created before the neutral-signal, closed-candle and exact-time grading corrections remains available in history but is excluded from current rankings and simulations.
+Prediction rows carry both the global signal-semantics generation and stable per-strategy code/version fields. They also preserve signal, execution, target and grading timestamps/prices plus candle interval. Data created before the neutral-signal, closed-candle and exact-time grading corrections remains available in history but is excluded from current rankings and simulations.
+
+Reports expose target-hit rate and directional accuracy independently. Live consensus is labeled consensus strength, not probability: only methods whose 95% Wilson lower bound is above 50% receive voting weight. This score is not an empirically calibrated chance of success.
 
 ## Verification
 
