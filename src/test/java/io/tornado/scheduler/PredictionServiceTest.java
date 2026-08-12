@@ -58,4 +58,12 @@ class PredictionServiceTest {
 
         assertThat(prediction.getOutcome()).isEqualTo(Outcome.UNGRADABLE);assertThat(prediction.getGradingAttempts()).isEqualTo(5);assertThat(prediction.getGradedAt()).isNotNull();
     }
+
+    @Test void resolvesAndLogsOneLookupPerSharedCoinTarget(){
+        var coins=mock(CoinRepository.class);var predictions=mock(PredictionRepository.class);var runs=mock(AnalysisRunRepository.class);var market=mock(BinanceMarketDataClient.class);Instant at=Instant.now().minus(Duration.ofMinutes(5));Coin coin=new Coin("ATOM","ATOMUSDT");Prediction a=new Prediction(null,coin,"A",at,Direction.UP,new BigDecimal("10"),Duration.ofMinutes(1)),b=new Prediction(null,coin,"B",at,Direction.DOWN,new BigDecimal("10"),Duration.ofMinutes(1));when(predictions.findByOutcomeAndSignalVersionOrderByPredictedAtAsc(Outcome.PENDING,2)).thenReturn(List.of(a,b));when(market.priceAt(eq("ATOMUSDT"),any())).thenThrow(new IllegalStateException("sparse market"));
+
+        new PredictionService(coins,predictions,runs,market).gradeDue();
+
+        verify(market,times(1)).priceAt(eq("ATOMUSDT"),any());assertThat(a.getGradingAttempts()).isEqualTo(1);assertThat(b.getGradingAttempts()).isEqualTo(1);
+    }
 }

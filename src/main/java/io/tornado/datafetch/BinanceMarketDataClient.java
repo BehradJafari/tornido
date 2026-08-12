@@ -15,7 +15,7 @@ import java.util.*;
 @Component
 public class BinanceMarketDataClient {
     private static final Logger log=LoggerFactory.getLogger(BinanceMarketDataClient.class);
-    private static final Duration MAX_TARGET_PRICE_DELAY=Duration.ofMinutes(1);
+    private static final Duration MAX_TARGET_PRICE_DISTANCE=Duration.ofMinutes(5);
     private final RestClient rest; private final TornadoProperties props;private final Clock clock;
     @Autowired public BinanceMarketDataClient(RestClient.Builder builder,TornadoProperties props){this(builder,props,Clock.systemUTC());}
     BinanceMarketDataClient(RestClient.Builder builder,TornadoProperties props,Clock clock){this.props=props;this.clock=clock;rest=builder.baseUrl(props.binance().restBaseUrl()).build();}
@@ -31,12 +31,17 @@ public class BinanceMarketDataClient {
     public BigDecimal price(String pair){return new BigDecimal(getWithRetry("/api/v3/ticker/price?symbol={pair}",pair).get("price").asText());}
     public String candleInterval(){return props.binance().candleInterval();}
     public TimedPrice priceAt(String pair,Instant target){
-        JsonNode trades=getWithRetry("/api/v3/aggTrades?symbol={pair}&startTime={start}&endTime={end}&limit=1",pair,target.toEpochMilli(),target.plus(Duration.ofHours(1)).minusMillis(1).toEpochMilli());
-        if(trades==null||!trades.isArray()||trades.isEmpty())throw new IllegalStateException("No Binance trade found near "+target+" for "+pair);
-        JsonNode trade=trades.get(0);Instant observedAt=Instant.ofEpochMilli(trade.get("T").asLong());Duration delay=Duration.between(target,observedAt);
-        if(delay.isNegative()||delay.compareTo(MAX_TARGET_PRICE_DELAY)>0)throw new IllegalStateException("Nearest Binance trade for "+pair+" is "+delay.toMillis()+"ms after target "+target);
-        return new TimedPrice(new BigDecimal(trade.get("p").asText()),observedAt,delay.toMillis());
+        long targetMillis=target.toEpochMilli(),window=MAX_TARGET_PRICE_DISTANCE.toMillis();
+        JsonNode beforeRows=getWithRetry("/api/v3/aggTrades?symbol={pair}&endTime={end}&limit=1",pair,targetMillis);
+        JsonNode afterRows=getWithRetry("/api/v3/aggTrades?symbol={pair}&startTime={start}&endTime={end}&limit=1",pair,targetMillis,targetMillis+window);
+        JsonNode before=first(beforeRows),after=first(afterRows),trade=nearest(targetMillis,before,after);
+        if(trade==null)throw new IllegalStateException("No Binance trade within "+window+"ms of target "+target+" for "+pair);
+        Instant observedAt=Instant.ofEpochMilli(trade.get("T").asLong());long delay=Duration.between(target,observedAt).toMillis();
+        if(Math.abs(delay)>window)throw new IllegalStateException("Nearest Binance trade for "+pair+" is "+Math.abs(delay)+"ms "+(delay<0?"before":"after")+" target "+target);
+        return new TimedPrice(new BigDecimal(trade.get("p").asText()),observedAt,delay);
     }
+    private JsonNode first(JsonNode rows){return rows!=null&&rows.isArray()&&!rows.isEmpty()?rows.get(0):null;}
+    private JsonNode nearest(long targetMillis,JsonNode before,JsonNode after){if(before==null)return after;if(after==null)return before;long beforeDistance=Math.abs(targetMillis-before.get("T").asLong()),afterDistance=Math.abs(after.get("T").asLong()-targetMillis);return beforeDistance<=afterDistance?before:after;}
     public PriceRange priceRange(String pair,Instant from,Instant to){
         if(to.isBefore(from))throw new IllegalArgumentException("price range end precedes start");
         Instant firstMinute=from.truncatedTo(java.time.temporal.ChronoUnit.MINUTES),lastMinute=to.truncatedTo(java.time.temporal.ChronoUnit.MINUTES);

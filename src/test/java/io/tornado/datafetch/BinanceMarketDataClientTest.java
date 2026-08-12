@@ -41,7 +41,8 @@ class BinanceMarketDataClientTest {
 
     @Test void readsTheFirstTradeAtTheRequestedHistoricalTarget(){
         RestClient.Builder builder=RestClient.builder();MockRestServiceServer server=MockRestServiceServer.bindTo(builder).build();
-        Instant target=Instant.parse("2026-01-01T00:00:00Z");long end=target.plusSeconds(3600).minusMillis(1).toEpochMilli();
+        Instant target=Instant.parse("2026-01-01T00:00:00Z");long end=target.plusSeconds(300).toEpochMilli();
+        server.expect(requestTo("https://binance.test/api/v3/aggTrades?symbol=BTCUSDT&endTime="+target.toEpochMilli()+"&limit=1")).andRespond(withSuccess("[{\"p\":\"123.456\",\"T\":"+target.toEpochMilli()+"}]",MediaType.APPLICATION_JSON));
         server.expect(requestTo("https://binance.test/api/v3/aggTrades?symbol=BTCUSDT&startTime="+target.toEpochMilli()+"&endTime="+end+"&limit=1")).andRespond(withSuccess("[{\"p\":\"123.456\",\"T\":"+target.toEpochMilli()+"}]",MediaType.APPLICATION_JSON));
 
         var result=client(builder).priceAt("BTCUSDT",target);
@@ -51,12 +52,23 @@ class BinanceMarketDataClientTest {
         server.verify();
     }
 
-    @Test void rejectsHistoricalPriceThatArrivesTooLongAfterTarget(){
+    @Test void usesTheCloserTradeOnEitherSideAndKeepsSignedDelay(){
         RestClient.Builder builder=RestClient.builder();MockRestServiceServer server=MockRestServiceServer.bindTo(builder).build();
-        Instant target=Instant.parse("2026-01-01T00:00:00Z");long end=target.plusSeconds(3600).minusMillis(1).toEpochMilli(),late=target.plusSeconds(61).toEpochMilli();
-        server.expect(requestTo("https://binance.test/api/v3/aggTrades?symbol=BTCUSDT&startTime="+target.toEpochMilli()+"&endTime="+end+"&limit=1")).andRespond(withSuccess("[{\"p\":\"123.456\",\"T\":"+late+"}]",MediaType.APPLICATION_JSON));
+        Instant target=Instant.parse("2026-01-01T00:00:00Z");long end=target.plusSeconds(300).toEpochMilli(),before=target.minusSeconds(40).toEpochMilli(),after=target.plusSeconds(108).toEpochMilli();
+        server.expect(requestTo("https://binance.test/api/v3/aggTrades?symbol=BTCUSDT&endTime="+target.toEpochMilli()+"&limit=1")).andRespond(withSuccess("[{\"p\":\"122.000\",\"T\":"+before+"}]",MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://binance.test/api/v3/aggTrades?symbol=BTCUSDT&startTime="+target.toEpochMilli()+"&endTime="+end+"&limit=1")).andRespond(withSuccess("[{\"p\":\"123.456\",\"T\":"+after+"}]",MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(()->client(builder).priceAt("BTCUSDT",target)).isInstanceOf(IllegalStateException.class).hasMessageContaining("61000ms after target");
+        var result=client(builder).priceAt("BTCUSDT",target);assertThat(result.price()).isEqualByComparingTo("122");assertThat(result.observedAt()).isEqualTo(target.minusSeconds(40));assertThat(result.delayMilliseconds()).isEqualTo(-40_000);
+        server.verify();
+    }
+
+    @Test void rejectsWhenNeitherSideHasATradeWithinFiveMinutes(){
+        RestClient.Builder builder=RestClient.builder();MockRestServiceServer server=MockRestServiceServer.bindTo(builder).build();
+        Instant target=Instant.parse("2026-01-01T00:00:00Z");long old=target.minusSeconds(301).toEpochMilli(),end=target.plusSeconds(300).toEpochMilli();
+        server.expect(requestTo("https://binance.test/api/v3/aggTrades?symbol=BTCUSDT&endTime="+target.toEpochMilli()+"&limit=1")).andRespond(withSuccess("[{\"p\":\"122\",\"T\":"+old+"}]",MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://binance.test/api/v3/aggTrades?symbol=BTCUSDT&startTime="+target.toEpochMilli()+"&endTime="+end+"&limit=1")).andRespond(withSuccess("[]",MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(()->client(builder).priceAt("BTCUSDT",target)).isInstanceOf(IllegalStateException.class).hasMessageContaining("301000ms before target");
         server.verify();
     }
 
