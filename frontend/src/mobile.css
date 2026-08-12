@@ -1,0 +1,86 @@
+.mobile-bottom-nav,.mobile-sheet-backdrop{display:none}
+
+@media(max-width:700px){
+  body{overflow-x:hidden}
+  .shell{display:block;min-height:100dvh}
+  aside{display:none}
+  main{display:block;padding:20px 14px calc(92px + env(safe-area-inset-bottom));max-width:none}
+  header{align-items:flex-start;gap:12px;margin-bottom:22px}
+  header h1{font-size:24px;line-height:1.1;overflow-wrap:anywhere}
+  header .run{flex:0 0 auto;font-size:0;padding:11px}
+  header .run svg{width:18px;margin:0}
+  .section-title{margin-top:26px}
+  .metrics{grid-template-columns:1fr 1fr;gap:8px}
+  .metrics article{padding:16px}
+  .metrics strong{font-size:18px;overflow-wrap:anywhere}
+  .coin-grid,.signal-grid,.opportunity-grid,.method-grid,.method-report-grid,.mix-grid{grid-template-columns:1fr}
+  .super-hero{grid-template-columns:1fr;padding:21px;gap:14px}
+  .hero-score{text-align:left;border:0;padding:0}
+  .hero-call{grid-column:auto}
+  .report-filter,.horizon-filter{align-items:stretch;flex-direction:column}
+  .report-filter>div{min-width:0}
+  .report-filter input{width:100%}
+  .segmented{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+  .segmented button,.segmented button:first-child,.segmented button:last-child{border-radius:7px}
+  .horizon-filter .segmented{display:flex;overflow-x:auto;width:100%;padding-bottom:4px}
+  .horizon-filter .segmented button{flex:0 0 auto}
+  .auto-slices{grid-template-columns:repeat(4,1fr)}
+  .settings{padding:17px}
+  .settings form{display:grid}
+  .modal{align-items:end;padding:0}
+  .modal form{width:100%;max-height:92dvh;overflow-y:auto;border-radius:18px 18px 0 0;padding:24px 18px calc(24px + env(safe-area-inset-bottom))}
+  .chart-toolbar{align-items:flex-start;gap:12px;padding:16px}
+  .chart-toolbar select{max-width:45%}
+  .market-chart{height:220px}
+  .projection{align-items:flex-start;flex-direction:column}
+  .money-fields{grid-template-columns:1fr}
+  .method-picker>div{display:grid;grid-template-columns:1fr 1fr}
+  .method-picker button{min-height:42px;text-align:left}
+  .run-card{grid-template-columns:20px minmax(180px,1fr) repeat(3,minmax(85px,auto)) 18px;min-width:610px}
+  .run-card .run-stat{display:block!important}
+  .run-list{overflow-x:auto;padding-bottom:6px}
+  .table,.rank-table,.history,.money-ledger{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .table-head,.table-row{grid-template-columns:220px 130px 90px 100px;min-width:620px}
+  .table-head span:last-child,.table-row>span:last-child{display:block}
+  .rank-head,.rank-table article{grid-template-columns:240px 140px 100px 100px;min-width:650px}
+  .rank-head>*:nth-child(n),.rank-table article>*:nth-child(n){display:block}
+  .history-head,.history article{grid-template-columns:95px 60px 220px 60px 115px 125px 85px 90px;min-width:930px}
+  .history time,.history article>span,.history-head>*{display:block}
+  .history article{align-items:center;padding:14px 18px}
+  .money-head,.money-ledger article{grid-template-columns:130px 55px 100px 100px 90px 95px 95px;min-width:800px}
+  .money-head>*:nth-child(n),.money-ledger article>*:nth-child(n){display:block}
+  .coin-bars{overflow-x:auto}
+  .coin-bars>div{grid-template-columns:70px minmax(160px,1fr) 65px 70px;min-width:430px}
+  .mobile-bottom-nav{position:fixed;z-index:40;left:0;right:0;bottom:0;display:grid;grid-template-columns:repeat(5,1fr);padding:7px 6px calc(7px + env(safe-area-inset-bottom));background:#0b0e11ee;border-top:1px solid #252c31;backdrop-filter:blur(18px);box-shadow:0 -12px 35px #0008}
+  .mobile-bottom-nav button{display:grid;place-items:center;gap:3px;min-width:0;padding:6px 2px;border:0;background:none;color:#68737c;font-size:9px}
+  .mobile-bottom-nav svg{width:19px;height:19px}
+  .mobile-bottom-nav button.active{color:#7ce4a8}
+  .mobile-sheet-backdrop{position:fixed;z-index:60;inset:0;display:flex;align-items:flex-end;background:#030506b8;backdrop-filter:blur(5px)}
+  .mobile-sheet{width:100%;max-height:85dvh;display:flex;flex-direction:column;background:#0f1316;border:1px solid #293138;border-bottom:0;border-radius:20px 20px 0 0;padding:20px 14px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -25px 70px #000}
+  .mobile-sheet.compact{max-height:60dvh}
+  .mobile-sheet:before{content:"";width:38px;height:4px;margin:-9px auto 15px;border-radius:5px;background:#374047}
+  .mobile-sheet-head{display:flex;align-items:center;justify-content:space-between;padding:0 4px 14px}
+  .mobile-sheet-head small{color:#65c98f;font:500 8px 'JetBrains Mono';letter-spacing:1px}
+  .mobile-sheet-head h2{font-size:20px;margin:5px 0 0}
+  .mobile-sheet-head button{display:grid;place-items:center;width:36px;height:36px;border:1px solid #293139;border-radius:50%;background:#151a1e;color:#87929a}
+  .mobile-sheet-head svg{width:17px}
+  .sheet-overview,.mobile-method-list button{width:100%;display:grid;grid-template-columns:32px 1fr 18px;align-items:center;gap:10px;border:1px solid #26302b;background:#121a16;color:#dce5e0;border-radius:10px;padding:13px;text-align:left}
+  .sheet-overview>svg{color:#77e1a3}
+  .sheet-overview span,.mobile-method-list button span{display:block;min-width:0}
+  .sheet-overview b,.mobile-method-list b{display:block;font-size:12px;overflow-wrap:anywhere}
+  .sheet-overview small,.mobile-method-list small{display:block;margin-top:4px;color:#65716f;font:500 8px 'JetBrains Mono'}
+  .sheet-overview svg:last-child,.mobile-method-list svg{width:16px;color:#58646c}
+  .mobile-method-list{display:grid;gap:7px;margin-top:10px;overflow-y:auto;padding-bottom:5px}
+  .mobile-method-list button{grid-template-columns:1fr 18px;background:#101417;border-color:#21292e}
+  .mobile-method-list button.active{border-color:#3e7655;background:#142019}
+  .mobile-more-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .mobile-more-grid button{display:flex;align-items:center;gap:10px;min-height:58px;padding:13px;border:1px solid #252d33;border-radius:10px;background:#11161a;color:#aeb8be;text-align:left}
+  .mobile-more-grid button.active{border-color:#3d7352;color:#7de3a7;background:#142019}
+  .mobile-more-grid svg{width:19px}
+}
+
+@media(max-width:390px){
+  .metrics{grid-template-columns:1fr}
+  .method-picker>div{grid-template-columns:1fr}
+  .mobile-bottom-nav span{font-size:8px}
+}

@@ -118,6 +118,9 @@ export default function App() {
     [prices, setPrices] = useState<Record<string, string>>({}),
     [selectedRun, setSelectedRun] = useState<number>(),
     [method, setMethod] = useState<string>(),
+    [allMethods, setAllMethods] = useState<{ id: string; name: string }[]>([]),
+    [methodMenu, setMethodMenu] = useState(false),
+    [moreMenu, setMoreMenu] = useState(false),
     [showRun, setShowRun] = useState(false),
     [notice, setNotice] = useState(""),
     [requestCount, setRequestCount] = useState(activeRequests);
@@ -158,6 +161,9 @@ export default function App() {
   };
   useEffect(() => {
     requestListeners.add(setRequestCount);
+    api<{ id: string; name: string }[]>("/api/methods")
+      .then(setAllMethods)
+      .catch(failed);
     return () => {
       requestListeners.delete(setRequestCount);
     };
@@ -187,6 +193,13 @@ export default function App() {
     setPreds(r.predictions);
     setSelectedRun(id);
     setMethod(undefined);
+  };
+  const navigate = (id: View) => {
+    setView(id);
+    setSelectedRun(undefined);
+    setMethod(undefined);
+    setMethodMenu(false);
+    setMoreMenu(false);
   };
   return (
     <div className="shell">
@@ -221,12 +234,9 @@ export default function App() {
             ] as const
           ).map(([id, I, label]) => (
             <button
+              key={id}
               className={view === id ? "active" : ""}
-              onClick={() => {
-                setView(id);
-                setSelectedRun(undefined);
-                setMethod(undefined);
-              }}
+              onClick={() => navigate(id)}
             >
               <I />
               {label}
@@ -316,6 +326,34 @@ export default function App() {
           />
         )}
       </main>
+      <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
+        <button className={view === "super" ? "active" : ""} onClick={() => navigate("super")}><TornadoIcon /><span>Super</span></button>
+        <button className={view === "analyses" ? "active" : ""} onClick={() => navigate("analyses")}><Activity /><span>Analyses</span></button>
+        <button className={view === "methods" || method ? "active" : ""} onClick={() => setMethodMenu(true)}><BarChart3 /><span>Methods</span></button>
+        <button className={view === "coins" ? "active" : ""} onClick={() => navigate("coins")}><Coins /><span>Coins</span></button>
+        <button className={["mixes","money","history","settings"].includes(view) ? "active" : ""} onClick={() => setMoreMenu(true)}><Settings /><span>More</span></button>
+      </nav>
+      {methodMenu && (
+        <div className="mobile-sheet-backdrop" onClick={() => setMethodMenu(false)}>
+          <section className="mobile-sheet" role="dialog" aria-modal="true" aria-label="Select a method" onClick={(e) => e.stopPropagation()}>
+            <div className="mobile-sheet-head"><div><small>METHOD INTELLIGENCE</small><h2>Select a method</h2></div><button aria-label="Close" onClick={() => setMethodMenu(false)}><X /></button></div>
+            <button className="sheet-overview" onClick={() => navigate("methods")}><BarChart3 /><span><b>All method reports</b><small>Compare every strategy and all available samples</small></span><ChevronRight /></button>
+            <div className="mobile-method-list">
+              {allMethods.map((item) => <button key={item.id} className={method === item.name ? "active" : ""} onClick={() => { setView("methods"); setSelectedRun(undefined); setMethod(item.name); setMethodMenu(false); }}><span><b>{item.name}</b><small>{item.id}</small></span><ChevronRight /></button>)}
+            </div>
+          </section>
+        </div>
+      )}
+      {moreMenu && (
+        <div className="mobile-sheet-backdrop" onClick={() => setMoreMenu(false)}>
+          <section className="mobile-sheet compact" role="dialog" aria-modal="true" aria-label="More navigation" onClick={(e) => e.stopPropagation()}>
+            <div className="mobile-sheet-head"><div><small>NAVIGATION</small><h2>More tools</h2></div><button aria-label="Close" onClick={() => setMoreMenu(false)}><X /></button></div>
+            <div className="mobile-more-grid">
+              {([ ["mixes",LineChart,"Method mixes"], ["money",DollarSign,"Money report"], ["history",Clock3,"Prediction log"], ["settings",Settings,"Settings"] ] as const).map(([id,I,label]) => <button key={id} className={view === id ? "active" : ""} onClick={() => navigate(id)}><I /><span>{label}</span></button>)}
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
