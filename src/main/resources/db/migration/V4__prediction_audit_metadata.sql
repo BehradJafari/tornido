@@ -1,0 +1,12 @@
+ALTER TABLE predictions ADD COLUMN strategy_code VARCHAR(80);
+ALTER TABLE predictions ADD COLUMN strategy_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE predictions ADD COLUMN signal_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE predictions ADD COLUMN signal_price NUMERIC(30,12);
+ALTER TABLE predictions ADD COLUMN target_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE predictions ADD COLUMN grading_price_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE predictions ADD COLUMN target_delay_milliseconds BIGINT;
+ALTER TABLE predictions ADD COLUMN candle_interval VARCHAR(10);
+ALTER TABLE predictions ADD COLUMN grading_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE predictions ADD COLUMN last_grading_error VARCHAR(500);
+UPDATE predictions SET strategy_code=method_name WHERE strategy_code IS NULL;
+CREATE INDEX idx_predictions_strategy_identity ON predictions(strategy_code,strategy_version,horizon_seconds);
