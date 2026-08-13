@@ -18,6 +18,7 @@ import {
   Tornado as TornadoIcon,
   X,
 } from "lucide-react";
+import { NumberField } from "./components/NumberField";
 type Coin = { id: number; symbol: string; pair: string };
 type Run = {
   id: number;
@@ -127,7 +128,7 @@ export default function App() {
   return <Dashboard currentUser={currentUser} logout={() => setCurrentUser(null)} />;
 }
 function LoginPage({ done }: { done: () => void }) {
-  const [username,setUsername]=useState("tornado-admin"),[password,setPassword]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false);
+  const [username,setUsername]=useState(""),[password,setPassword]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false);
   const submit=async(e:React.FormEvent)=>{e.preventDefault();setBusy(true);setError("");try{const r=await fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username,password})});if(!r.ok)throw new Error(r.status===401?"Incorrect username or password":"Login failed");done();}catch(e){setError(e instanceof Error?e.message:"Login failed");}finally{setBusy(false);}};
   return <main className="login-page"><section className="login-card"><div className="login-brand"><span><TornadoIcon /></span><div>TORNADO<small>SIGNAL INTELLIGENCE</small></div></div><div className="login-copy"><small>SECURE WORKSPACE</small><h1>Welcome back</h1><p>Sign in to access market analysis, predictions, and protected APIs.</p></div><form onSubmit={submit}><label>USERNAME<input autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required /></label><label>PASSWORD<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} autoFocus required /></label>{error&&<div className="login-error">{error}</div>}<button disabled={busy}>{busy?<LoaderCircle />:<TornadoIcon />}{busy?"Signing in…":"Sign in securely"}</button></form><footer>JWT protected · HttpOnly cookie · TLS required</footer></section></main>;
 }
@@ -464,12 +465,7 @@ function SuperAnalysis({ prices }: { prices: Record<string, string> }) {
       <div className="report-filter super-filter">
         <div>
           <small>MINIMUM EVIDENCE PER METHOD / MIX</small>
-          <input
-            type="number"
-            min="1"
-            value={min}
-            onChange={(e) => setMin(Math.max(1, +e.target.value))}
-          />
+          <NumberField value={min} onChange={setMin} min={1} ariaLabel="Minimum evidence" />
         </div>
         <p>
           Value score uses the 95% Wilson lower bound. It rewards target hits and
@@ -1044,12 +1040,7 @@ function MixReports() {
         </div>
         <div>
           <small>MINIMUM SAMPLES</small>
-          <input
-            type="number"
-            min="1"
-            value={min}
-            onChange={(e) => setMin(Math.max(1, +e.target.value))}
-          />
+          <NumberField value={min} onChange={setMin} min={1} ariaLabel="Minimum samples" />
         </div>
       </div>
       <section className="metrics">
@@ -1219,44 +1210,32 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
           </label>
           <label>
             MARGIN / TRADE
-            <input
-              type="number"
-              min="1"
-              step="1"
-              value={amount}
-              onChange={(e) => setAmount(+e.target.value)}
-            />
+            <NumberField value={amount} onChange={setAmount} min={1} step={1} ariaLabel="Margin per trade" />
             <span>USDT</span>
           </label>
           <label>
             FUTURES LEVERAGE
-            <input
-              type="number"
-              min="1"
-              max="125"
-              value={leverage}
-              onChange={(e) => setLeverage(+e.target.value)}
-            />
+            <NumberField value={leverage} onChange={setLeverage} min={1} max={125} ariaLabel="Futures leverage" />
             <span>×</span>
           </label>
           <label>
             TAKER FEE / SIDE
-            <input type="number" min="0" max="5" step="0.001" value={takerFee} onChange={(e) => setTakerFee(+e.target.value)} />
+            <NumberField value={takerFee} onChange={setTakerFee} min={0} max={5} step={0.001} ariaLabel="Taker fee per side" />
             <span>%</span>
           </label>
           <label>
             SLIPPAGE / SIDE
-            <input type="number" min="0" max="5" step="0.001" value={slippage} onChange={(e) => setSlippage(+e.target.value)} />
+            <NumberField value={slippage} onChange={setSlippage} min={0} max={5} step={0.001} ariaLabel="Slippage per side" />
             <span>%</span>
           </label>
           <label>
             ROUND-TRIP SPREAD
-            <input type="number" min="0" max="5" step="0.001" value={spread} onChange={(e) => setSpread(+e.target.value)} />
+            <NumberField value={spread} onChange={setSpread} min={0} max={5} step={0.001} ariaLabel="Round-trip spread" />
             <span>%</span>
           </label>
           <label>
             FUNDING / TRADE
-            <input type="number" min="0" max="5" step="0.001" value={funding} onChange={(e) => setFunding(+e.target.value)} />
+            <NumberField value={funding} onChange={setFunding} min={0} max={5} step={0.001} ariaLabel="Funding per trade" />
             <span>%</span>
           </label>
         </div>
@@ -1429,12 +1408,7 @@ function ReportFilters({
       </div>
       <div>
         <small>MINIMUM SAMPLES</small>
-        <input
-          type="number"
-          min="1"
-          value={min}
-          onChange={(e) => setMin(Math.max(1, +e.target.value))}
-        />
+        <NumberField value={min} onChange={setMin} min={1} ariaLabel="Minimum samples" />
       </div>
     </div>
   );
