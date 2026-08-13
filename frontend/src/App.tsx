@@ -76,6 +76,10 @@ const api = async <T,>(url: string, init?: RequestInit): Promise<T> => {
       headers: { "Content-Type": "application/json" },
       ...init,
     });
+    if (r.status === 401) {
+      window.dispatchEvent(new Event("tornado-auth-required"));
+      throw new Error("Please sign in to continue");
+    }
     if (!r.ok) throw new Error((await r.json()).error || r.statusText);
     return r.json();
   } finally {
@@ -110,6 +114,24 @@ const ago = (s: string) => {
         : `${Math.floor(m / 1440)}d ago`;
 };
 export default function App() {
+  const [currentUser, setCurrentUser] = useState<{username:string;role:"ADMIN"|"USER"}|null|undefined>(undefined);
+  const checkAuth=()=>fetch("/api/auth/me").then(async r=>setCurrentUser(r.ok?await r.json():null)).catch(()=>setCurrentUser(null));
+  useEffect(() => {
+    const expired = () => setCurrentUser(null);
+    window.addEventListener("tornado-auth-required", expired);
+    checkAuth();
+    return () => window.removeEventListener("tornado-auth-required", expired);
+  }, []);
+  if (currentUser === undefined) return <div className="auth-loading"><TornadoIcon /><span>Securing workspace…</span></div>;
+  if (!currentUser) return <LoginPage done={checkAuth} />;
+  return <Dashboard currentUser={currentUser} logout={() => setCurrentUser(null)} />;
+}
+function LoginPage({ done }: { done: () => void }) {
+  const [username,setUsername]=useState("tornado-admin"),[password,setPassword]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false);
+  const submit=async(e:React.FormEvent)=>{e.preventDefault();setBusy(true);setError("");try{const r=await fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username,password})});if(!r.ok)throw new Error(r.status===401?"Incorrect username or password":"Login failed");done();}catch(e){setError(e instanceof Error?e.message:"Login failed");}finally{setBusy(false);}};
+  return <main className="login-page"><section className="login-card"><div className="login-brand"><span><TornadoIcon /></span><div>TORNADO<small>SIGNAL INTELLIGENCE</small></div></div><div className="login-copy"><small>SECURE WORKSPACE</small><h1>Welcome back</h1><p>Sign in to access market analysis, predictions, and protected APIs.</p></div><form onSubmit={submit}><label>USERNAME<input autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required /></label><label>PASSWORD<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} autoFocus required /></label>{error&&<div className="login-error">{error}</div>}<button disabled={busy}>{busy?<LoaderCircle />:<TornadoIcon />}{busy?"Signing in…":"Sign in securely"}</button></form><footer>JWT protected · HttpOnly cookie · TLS required</footer></section></main>;
+}
+function Dashboard({currentUser,logout}:{currentUser:{username:string;role:"ADMIN"|"USER"};logout:()=>void}) {
   const [view, setView] = useState<View>("super"),
     [coins, setCoins] = useState<Coin[]>([]),
     [runs, setRuns] = useState<Run[]>([]),
@@ -270,10 +292,7 @@ export default function App() {
                   }[view]}
             </h1>
           </div>
-          <button className="run" onClick={() => setShowRun(true)}>
-            <Play />
-            New analysis
-          </button>
+          <div className="header-actions"><button className="logout" onClick={async()=>{await fetch("/api/auth/logout",{method:"POST"});logout();}}>Log out</button><button className="run" onClick={() => setShowRun(true)}><Play />New analysis</button></div>
         </header>
         {notice && <div className="notice">{notice}</div>}
         {selectedRun ? (
@@ -311,7 +330,7 @@ export default function App() {
             {view === "money" && <MoneyReport coins={coins} />}{" "}
             {view === "history" && <History rows={preds} prices={prices} />}{" "}
             {view === "settings" && (
-              <SettingsView coins={coins} reload={loadPage} />
+              <SettingsView coins={coins} reload={loadPage} currentUser={currentUser} />
             )}
           </>
         )}
@@ -1781,9 +1800,11 @@ function Metric({
 function SettingsView({
   coins,
   reload,
+  currentUser,
 }: {
   coins: Coin[];
   reload: () => void;
+  currentUser:{username:string;role:"ADMIN"|"USER"};
 }) {
   const [symbol, setSymbol] = useState(""),
     [pair, setPair] = useState("");
@@ -1845,9 +1866,18 @@ function SettingsView({
           </div>
         ))}
       </section>
+      {currentUser.role === "ADMIN" && <UserSettings currentUsername={currentUser.username} />}
     </>
   );
 }
 function Empty({ text }: { text: string }) {
   return <div className="empty">{text}</div>;
+}
+function UserSettings({currentUsername}:{currentUsername:string}){
+  type User={id:number;username:string;role:"ADMIN"|"USER";enabled:boolean;createdAt:string};
+  const [users,setUsers]=useState<User[]>([]),[username,setUsername]=useState(""),[password,setPassword]=useState(""),[role,setRole]=useState<"ADMIN"|"USER">("USER"),[error,setError]=useState("");
+  const load=()=>api<User[]>("/api/users").then(setUsers).catch(e=>setError(String(e)));useEffect(()=>{load()},[]);
+  const create=async(e:React.FormEvent)=>{e.preventDefault();setError("");try{await api("/api/users",{method:"POST",body:JSON.stringify({username,password,role})});setUsername("");setPassword("");setRole("USER");load()}catch(e){setError(String(e))}};
+  const reset=async(user:User)=>{const next=window.prompt(`New password for ${user.username} (minimum 12 characters)`);if(!next)return;try{await api(`/api/users/${user.id}/password`,{method:"PUT",body:JSON.stringify({password:next})});setError("")}catch(e){setError(String(e))}};
+  return <section className="panel settings user-settings"><h2>Application users</h2><p className="settings-note">Users can access analyses and reports. Administrators can also manage accounts.</p><form onSubmit={create}><label>USERNAME<input value={username} onChange={e=>setUsername(e.target.value)} placeholder="analyst" pattern="[A-Za-z0-9._-]{3,80}" required /></label><label>TEMPORARY PASSWORD<input type="password" value={password} onChange={e=>setPassword(e.target.value)} minLength={12} required /></label><label>ROLE<select value={role} onChange={e=>setRole(e.target.value as "ADMIN"|"USER")}><option value="USER">User</option><option value="ADMIN">Administrator</option></select></label><button><Plus />Add user</button></form>{error&&<div className="form-error">{error}</div>}<div className="user-list">{users.map(user=><div className="setting-row" key={user.id}><span><b>{user.username}{user.username===currentUsername?" (you)":""}</b><small>{user.role} · {user.enabled?"ACTIVE":"DISABLED"} · added {new Date(user.createdAt).toLocaleDateString()}</small></span><div className="user-actions"><button onClick={()=>reset(user)}>Reset password</button><button disabled={user.username===currentUsername} onClick={async()=>{await api(`/api/users/${user.id}/enabled`,{method:"PUT",body:JSON.stringify({enabled:!user.enabled})});load()}}>{user.enabled?"Disable":"Enable"}</button><button className="danger" disabled={user.username===currentUsername} onClick={async()=>{if(window.confirm(`Delete ${user.username}?`)){await api(`/api/users/${user.id}`,{method:"DELETE"});load()}}}><Trash2 /></button></div></div>)}</div></section>
 }

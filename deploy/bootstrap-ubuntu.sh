@@ -18,9 +18,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
   openjdk-21-jre-headless nginx postgresql postgresql-contrib \
-  apache2-utils certbot python3-certbot-nginx curl ca-certificates
+  certbot python3-certbot-nginx curl ca-certificates
 
 DB_PASSWORD="${TORNADO_DB_PASSWORD:-$(openssl rand -hex 24)}"
+JWT_SECRET="${TORNADO_JWT_SECRET:-$(openssl rand -hex 48)}"
 if [[ ! "$DB_PASSWORD" =~ ^[A-Za-z0-9._~-]+$ ]]; then
   echo "TORNADO_DB_PASSWORD may contain only letters, digits, dot, underscore, tilde, and hyphen" >&2
   exit 1
@@ -42,7 +43,9 @@ WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'tornado') \gexec
 SQL
 
 if [[ ! -f /etc/tornado/tornado.env ]]; then
-  sed "s/^DB_PASSWORD=.*/DB_PASSWORD=$DB_PASSWORD/" "$SCRIPT_DIR/env.example" \
+  sed -e "s/^DB_PASSWORD=.*/DB_PASSWORD=$DB_PASSWORD/" \
+      -e "s/^TORNADO_ADMIN_PASSWORD=.*/TORNADO_ADMIN_PASSWORD=$TORNADO_ADMIN_PASSWORD/" \
+      -e "s/^TORNADO_JWT_SECRET=.*/TORNADO_JWT_SECRET=$JWT_SECRET/" "$SCRIPT_DIR/env.example" \
     > /etc/tornado/tornado.env
   chown root:tornado /etc/tornado/tornado.env
   chmod 0640 /etc/tornado/tornado.env
@@ -52,10 +55,6 @@ install -m 0644 "$SCRIPT_DIR/tornado.service" /etc/systemd/system/tornado.servic
 sed "s/__DOMAIN__/$DOMAIN/g" "$SCRIPT_DIR/nginx.conf" > /etc/nginx/sites-available/tornado
 ln -sfn /etc/nginx/sites-available/tornado /etc/nginx/sites-enabled/tornado
 if [[ -L /etc/nginx/sites-enabled/default ]]; then unlink /etc/nginx/sites-enabled/default; fi
-printf '%s\n' "$TORNADO_ADMIN_PASSWORD" | htpasswd -ic /etc/nginx/.htpasswd-tornado tornado-admin
-chmod 0640 /etc/nginx/.htpasswd-tornado
-chown root:www-data /etc/nginx/.htpasswd-tornado
-
 nginx -t
 systemctl daemon-reload
 systemctl enable postgresql nginx tornado

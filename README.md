@@ -37,12 +37,14 @@ Vite runs at <http://localhost:5173> and proxies `/api` to Spring Boot.
 
 ## Ubuntu VPS deployment
 
-Production deployment files are under `deploy/`. The complete Ubuntu Server 24.04 guide covers PostgreSQL, systemd, Nginx, Basic Auth, TLS, firewall rules, backups, upgrades and rollback:
+Production deployment files are under `deploy/`. The complete Ubuntu Server 24.04 guide covers PostgreSQL, systemd, application login/JWT security, Nginx, TLS, firewall rules, backups, upgrades and rollback:
 
 - [Ubuntu 24.04 deployment guide](docs/ubuntu-24.04-deployment.md)
 - `deploy/bootstrap-ubuntu.sh` — one-time server provisioning
 - `deploy/deploy.sh` — versioned build, install, restart and health check
 - `deploy/backup-postgres.sh` — PostgreSQL backup with 14-day retention
+
+The first `ADMIN` account is created from `TORNADO_ADMIN_USERNAME` and `TORNADO_ADMIN_PASSWORD` during startup. Administrators can manage persistent `ADMIN` and `USER` accounts under **Settings → Application users**. Passwords are encoded in PostgreSQL; standard users cannot access `/api/users/**`.
 
 ## PostgreSQL
 

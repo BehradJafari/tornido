@@ -47,7 +47,7 @@ class ReportServiceTest {
 
     @Test void rejectsCombinedHorizonsForRankings(){
         var service=new ReportService(mock(PredictionRepository.class),mock(AnalysisRunRepository.class),mock(BinanceMarketDataClient.class));
-        assertThatThrownBy(()->service.coinReports(1,0)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("one time horizon");
+        assertThatThrownBy(()->service.coinReports(1,0)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("horizon must be one of");
     }
 
     @Test void belowRandomOrStatisticallyWeakMethodsReceiveNoConsensusWeight(){

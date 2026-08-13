@@ -1,6 +1,6 @@
 # Deploy Tornado on Ubuntu Server 24.04
 
-This layout runs one Spring Boot process behind Nginx, stores data in PostgreSQL, starts Tornado with systemd, and protects the dashboard/API with HTTP Basic Authentication. Java listens only through the local Nginx proxy in the recommended firewall configuration.
+This layout runs one Spring Boot process behind Nginx, stores data in PostgreSQL, starts Tornado with systemd, and protects the dashboard/API with an application login page and signed JWT authentication. Java listens only through the local Nginx proxy in the recommended firewall configuration.
 
 ## 1. Prepare the VPS
 
@@ -22,7 +22,7 @@ sudo DOMAIN=tornado.example.com \
   ./deploy/bootstrap-ubuntu.sh
 ```
 
-The script installs Java 21, Nginx, PostgreSQL, Certbot and Basic Auth tooling; creates the `tornado` Linux/PostgreSQL users and database; and installs systemd/Nginx configuration. A random PostgreSQL password is generated unless `TORNADO_DB_PASSWORD` is supplied.
+The script installs Java 21, Nginx, PostgreSQL and Certbot; creates the `tornado` Linux/PostgreSQL users and database; and installs systemd/Nginx configuration. Random PostgreSQL and JWT signing secrets are generated unless supplied explicitly.
 
 ## 2. Install build tools and deploy
 
@@ -57,7 +57,9 @@ sudo certbot --nginx -d tornado.example.com
 sudo certbot renew --dry-run
 ```
 
-Open `https://tornado.example.com` and sign in as `tornado-admin` with the bootstrap password.
+Open `https://tornado.example.com` and use the Tornido login page to sign in as `tornado-admin` with the bootstrap password. API clients can POST the same credentials to `/api/auth/login`, then send the returned token as `Authorization: Bearer TOKEN`.
+
+The bootstrap account is an administrator. Open **Settings → Application users** to create additional `USER` or `ADMIN` accounts, reset passwords, disable access, or delete accounts. Passwords are encoded in PostgreSQL. Disabling or deleting an account invalidates its existing JWT on the next request.
 
 ## 4. Configuration and operations
 
@@ -73,16 +75,19 @@ sudo journalctl -u tornado -f
 Useful checks:
 
 ```bash
-curl -u tornado-admin https://tornado.example.com/api/coins
+TOKEN=$(curl -fsS https://tornado.example.com/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"tornado-admin","password":"YOUR_PASSWORD"}' | jq -r .accessToken)
+curl -H "Authorization: Bearer $TOKEN" https://tornado.example.com/api/coins
 sudo nginx -t
 sudo ss -lntp
 ```
 
-Change the dashboard password with:
+Change the dashboard password and JWT signing secret in the protected environment file:
 
 ```bash
-sudo htpasswd /etc/nginx/.htpasswd-tornado tornado-admin
-sudo systemctl reload nginx
+sudoedit /etc/tornado/tornado.env
+sudo systemctl restart tornado
 ```
 
 ## 5. Backups and restore

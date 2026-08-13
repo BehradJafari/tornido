@@ -10,8 +10,15 @@ spring:
   flyway.enabled: true
   jackson.serialization.write-dates-as-timestamps: false
 server.port: ${PORT:8080}
+server.address: ${SERVER_ADDRESS:0.0.0.0}
+server.forward-headers-strategy: framework
 
 tornado:
+  auth:
+    username: ${TORNADO_ADMIN_USERNAME:tornado-admin}
+    password: ${TORNADO_ADMIN_PASSWORD:local-development-password}
+    jwt-secret: ${TORNADO_JWT_SECRET:local-development-jwt-secret-change-me}
+    token-ttl: ${TORNADO_TOKEN_TTL:12h}
   binance:
     rest-base-url: ${BINANCE_REST_URL:https://api.binance.com}
     websocket-base-url: ${BINANCE_WS_URL:wss://stream.binance.com:9443}
