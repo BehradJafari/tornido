@@ -50,7 +50,7 @@ public class MixTradeSimulation {
     /** Compatibility constructor for callers compiled against the old API. */
     public MixTradeSimulation(Coin coin,BestMethodMix mix,Direction direction,int agreement,BigDecimal entry,BigDecimal ignoredLegacyStop,Instant opened) { this(coin,mix,direction,agreement,entry,TpSlLevels.defaults(),opened); }
 
-    public static String activeKey(Coin coin,BestMethodMix mix,Direction direction) { StringBuilder key=new StringBuilder().append(coin.getId()).append(':').append(mix.getHorizonSeconds()).append(':');List<String>codes=mix.getStrategyCodes();List<Integer>versions=mix.getStrategyVersions();for(int i=0;i<codes.size();i++){if(i>0)key.append(',');key.append(codes.get(i)).append('@').append(versions.get(i));}return key.append(':').append(direction).toString(); }
+    public static String activeKey(Coin coin,BestMethodMix mix,Direction direction) { List<String>strategies=new ArrayList<>();List<String>codes=mix.getStrategyCodes();List<Integer>versions=mix.getStrategyVersions();for(int i=0;i<codes.size();i++)strategies.add(codes.get(i)+"@"+versions.get(i));strategies.sort(Comparator.naturalOrder());return coin.getId()+":"+mix.getHorizonSeconds()+":"+String.join(",",strategies)+":"+direction; }
     public void telegramMessage(Long id){telegramMessageId=id;updatedAt=Instant.now();}
 
     public Observation observeMilestones(BigDecimal price,Instant at) {

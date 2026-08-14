@@ -13,7 +13,7 @@ class BestMixServiceTest {
     @Test void refreshReplacesPreviousRanksAndStoresAtMostTopThreePerSize(){
         var predictions=mock(PredictionRepository.class);var mixes=mock(BestMethodMixRepository.class);var coins=mock(CoinRepository.class);var settings=mock(AppSettingsRepository.class);
         Coin coin=new Coin("BTC","BTCUSDT");org.springframework.test.util.ReflectionTestUtils.setField(coin,"id",1L);
-        AppSettings configuration=new AppSettings(900,900);configuration.updateMixSignals(1,new BigDecimal("0.5"),true);
+        AppSettings configuration=new AppSettings(900,900);TpSlLevels rebuiltLevels=new TpSlLevels(new BigDecimal(".40"),new BigDecimal(".80"),new BigDecimal("1.50"),new BigDecimal(".30"),new BigDecimal(".50"),new BigDecimal("1.00"));configuration.updateMixSignals(1,rebuiltLevels,true);
         when(coins.findById(1L)).thenReturn(Optional.of(coin));when(settings.findById(1)).thenReturn(Optional.of(configuration));
         List<ReportRow>rows=new ArrayList<>();for(long run=1;run<=6;run++)for(int method=0;method<10;method++)rows.add(row(run,"M"+method,Direction.UP,"101"));
         when(predictions.findGradedReportRows(1L,900L)).thenReturn(rows);
@@ -21,7 +21,7 @@ class BestMixServiceTest {
         verify(mixes).deleteSlice(1L,900,3);
         @SuppressWarnings("unchecked") org.mockito.ArgumentCaptor<Iterable<BestMethodMix>>capture=org.mockito.ArgumentCaptor.forClass(Iterable.class);
         verify(mixes).saveAll(capture.capture());List<BestMethodMix>saved=new ArrayList<>();capture.getValue().forEach(saved::add);
-        for(int tp=1;tp<=3;tp++)for(int selectedSize:List.of(2,3,4,5,6,7,8)){int selectedTp=tp;List<BestMethodMix>slice=saved.stream().filter(x->x.getTpLevel()==selectedTp&&x.getMixSize()==selectedSize).toList();assertThat(slice).hasSize(3);assertThat(slice).extracting(BestMethodMix::getRank).containsExactly(1,2,3);}
+        for(int tp=1;tp<=3;tp++)for(int selectedSize:List.of(2,3,4,5,6,7,8)){int selectedTp=tp;List<BestMethodMix>slice=saved.stream().filter(x->x.getTpLevel()==selectedTp&&x.getMixSize()==selectedSize).toList();assertThat(slice).hasSize(3);assertThat(slice).extracting(BestMethodMix::getRank).containsExactly(1,2,3);assertThat(slice).allSatisfy(row->assertThat(row.getTargetPercent()).isEqualByComparingTo(rebuiltLevels.tp(selectedTp)));}
         verify(predictions,times(1)).findGradedReportRows(1L,900L);
     }
     @Test void calculatesEligibleMixesForEverySizeTwoThroughEight(){BestMixService service=service();List<ReportRow>rows=new ArrayList<>();for(long run=1;run<=5;run++)for(int method=0;method<8;method++)rows.add(row(run,"M"+method,Direction.UP,"101"));var result=service.calculate(rows,5);assertThat(result).extracting(BestMixService.Candidate::size).contains(2,3,4,5,6,7,8);assertThat(result).allSatisfy(x->assertThat(x.samples()).isEqualTo(5));assertThat(service.calculate(rows,6)).isEmpty();}
