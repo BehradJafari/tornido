@@ -25,11 +25,11 @@ public class MixTradeSimulation {
     private Instant openedAt; @Column(precision=30,scale=12) private BigDecimal entryPrice;
     /** Legacy columns. New rows point these at terminal TP3/SL3. */
     @Column(precision=30,scale=12) private BigDecimal targetPrice; @Column(precision=30,scale=12) private BigDecimal stopLossPrice;
-    @Column(precision=8,scale=4) private BigDecimal tp1Percent; @Column(precision=8,scale=4) private BigDecimal tp2Percent; @Column(precision=8,scale=4) private BigDecimal tp3Percent;
-    @Column(precision=8,scale=4) private BigDecimal sl1Percent; @Column(precision=8,scale=4) private BigDecimal sl2Percent; @Column(precision=8,scale=4) private BigDecimal sl3Percent;
-    @Column(precision=30,scale=12) private BigDecimal tp1Price; @Column(precision=30,scale=12) private BigDecimal tp2Price; @Column(precision=30,scale=12) private BigDecimal tp3Price;
-    @Column(precision=30,scale=12) private BigDecimal sl1Price; @Column(precision=30,scale=12) private BigDecimal sl2Price; @Column(precision=30,scale=12) private BigDecimal sl3Price;
-    private Instant tp1HitAt; private Instant tp2HitAt; private Instant tp3HitAt; private Instant sl1HitAt; private Instant sl2HitAt; private Instant sl3HitAt;
+    @Column(name="tp1_percent",precision=8,scale=4) private BigDecimal tp1Percent; @Column(name="tp2_percent",precision=8,scale=4) private BigDecimal tp2Percent; @Column(name="tp3_percent",precision=8,scale=4) private BigDecimal tp3Percent;
+    @Column(name="sl1_percent",precision=8,scale=4) private BigDecimal sl1Percent; @Column(name="sl2_percent",precision=8,scale=4) private BigDecimal sl2Percent; @Column(name="sl3_percent",precision=8,scale=4) private BigDecimal sl3Percent;
+    @Column(name="tp1_price",precision=30,scale=12) private BigDecimal tp1Price; @Column(name="tp2_price",precision=30,scale=12) private BigDecimal tp2Price; @Column(name="tp3_price",precision=30,scale=12) private BigDecimal tp3Price;
+    @Column(name="sl1_price",precision=30,scale=12) private BigDecimal sl1Price; @Column(name="sl2_price",precision=30,scale=12) private BigDecimal sl2Price; @Column(name="sl3_price",precision=30,scale=12) private BigDecimal sl3Price;
+    @Column(name="tp1_hit_at") private Instant tp1HitAt; @Column(name="tp2_hit_at") private Instant tp2HitAt; @Column(name="tp3_hit_at") private Instant tp3HitAt; @Column(name="sl1_hit_at") private Instant sl1HitAt; @Column(name="sl2_hit_at") private Instant sl2HitAt; @Column(name="sl3_hit_at") private Instant sl3HitAt;
     @Enumerated(EnumType.STRING) @Column(length=24) private Status status;
     private Instant closedAt; @Column(precision=30,scale=12) private BigDecimal closePrice;
     @Column(precision=30,scale=12) private BigDecimal lastCheckedPrice; @Column(nullable=false) private Instant lastCheckedAt;

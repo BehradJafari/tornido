@@ -1,0 +1,36 @@
+.settings fieldset {
+  min-width: 260px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #293038;
+  border-radius: 9px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(70px, 1fr));
+  gap: 9px;
+  flex: 3;
+}
+
+.settings fieldset legend {
+  padding: 0 6px;
+  color: #8de9b4;
+  font: 600 9px 'JetBrains Mono';
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.settings fieldset label {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .settings fieldset {
+    min-width: 0;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .settings fieldset {
+    grid-template-columns: 1fr;
+  }
+}

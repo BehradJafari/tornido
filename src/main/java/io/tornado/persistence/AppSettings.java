@@ -11,12 +11,12 @@ public class AppSettings {
     @Column(nullable=false) private int minimumMixSimulationTrades=30;
     /** Retained for schema/API compatibility; new code uses the explicit ladder below. */
     @Column(nullable=false,precision=8,scale=4) private java.math.BigDecimal mixTradeStopLossPercent=new java.math.BigDecimal("0.5");
-    @Column(nullable=false,precision=8,scale=4) private java.math.BigDecimal takeProfit1Percent=new java.math.BigDecimal("0.30");
-    @Column(nullable=false,precision=8,scale=4) private java.math.BigDecimal takeProfit2Percent=new java.math.BigDecimal("0.50");
-    @Column(nullable=false,precision=8,scale=4) private java.math.BigDecimal takeProfit3Percent=new java.math.BigDecimal("1.00");
-    @Column(nullable=false,precision=8,scale=4) private java.math.BigDecimal stopLoss1Percent=new java.math.BigDecimal("0.30");
-    @Column(nullable=false,precision=8,scale=4) private java.math.BigDecimal stopLoss2Percent=new java.math.BigDecimal("0.50");
-    @Column(nullable=false,precision=8,scale=4) private java.math.BigDecimal stopLoss3Percent=new java.math.BigDecimal("1.00");
+    @Column(name="take_profit1_percent",nullable=false,precision=8,scale=4) private java.math.BigDecimal takeProfit1Percent=new java.math.BigDecimal("0.30");
+    @Column(name="take_profit2_percent",nullable=false,precision=8,scale=4) private java.math.BigDecimal takeProfit2Percent=new java.math.BigDecimal("0.50");
+    @Column(name="take_profit3_percent",nullable=false,precision=8,scale=4) private java.math.BigDecimal takeProfit3Percent=new java.math.BigDecimal("1.00");
+    @Column(name="stop_loss1_percent",nullable=false,precision=8,scale=4) private java.math.BigDecimal stopLoss1Percent=new java.math.BigDecimal("0.30");
+    @Column(name="stop_loss2_percent",nullable=false,precision=8,scale=4) private java.math.BigDecimal stopLoss2Percent=new java.math.BigDecimal("0.50");
+    @Column(name="stop_loss3_percent",nullable=false,precision=8,scale=4) private java.math.BigDecimal stopLoss3Percent=new java.math.BigDecimal("1.00");
     @Column(nullable=false) private boolean telegramDailyReportEnabled=true;
     @Column(nullable=false) private int minimumConfigurationSamples=100;
     @Column(nullable=false,precision=8,scale=4) private java.math.BigDecimal profileReplacementMinimumImprovementPercent=new java.math.BigDecimal("2.0");
