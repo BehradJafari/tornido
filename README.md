@@ -43,6 +43,7 @@ Production deployment files are under `deploy/`. The complete Ubuntu Server 24.0
 - `deploy/bootstrap-ubuntu.sh` — one-time server provisioning
 - `deploy/deploy.sh` — versioned build, install, restart and health check
 - `deploy/backup-postgres.sh` — PostgreSQL backup with 14-day retention
+- `deploy/reset-postgres.sh` — guarded full database reset with a pre-reset backup
 
 The first `ADMIN` account is created from `TORNADO_ADMIN_USERNAME` and `TORNADO_ADMIN_PASSWORD` during startup. Administrators can manage persistent `ADMIN` and `USER` accounts under **Settings → Application users**. Passwords are encoded in PostgreSQL; standard users cannot access `/api/users/**`.
 
@@ -54,6 +55,14 @@ Start the included database, then run Tornado with its connection settings:
 docker compose up -d postgres
 DB_URL=jdbc:postgresql://localhost:5432/tornado DB_USERNAME=tornado DB_PASSWORD=tornado ./run.sh
 ```
+
+To erase all Tornido application data and let Flyway recreate an empty schema on restart:
+
+```bash
+sudo ./deploy/reset-postgres.sh /etc/tornado/tornado.env
+```
+
+The reset script prints the exact database target, creates a timestamped PostgreSQL dump, and requires typing `RESET <database-name>` before it drops the `public` schema. Historical predictions, users, settings, and profile research are all removed.
 
 Flyway applies `src/main/resources/db/migration/V1__initial_schema.sql` to either database.
 
