@@ -386,6 +386,9 @@ function Dashboard({currentUser,logout}:{currentUser:{username:string;role:"ADMI
     </div>
   );
 }
+type TpSettings={takeProfit1Percent:number;takeProfit2Percent:number;takeProfit3Percent:number};
+function useTpSettings(){const [s,setS]=useState<TpSettings>({takeProfit1Percent:.3,takeProfit2Percent:.5,takeProfit3Percent:1});useEffect(()=>{api<TpSettings>("/api/settings/mix-signals").then(setS).catch(()=>{})},[]);return s}
+function TpSelector({value,setValue}:{value:number;setValue:(n:number)=>void}){const s=useTpSettings(),values=[s.takeProfit1Percent,s.takeProfit2Percent,s.takeProfit3Percent];return <div className="horizon-filter"><small>TARGET DEFINITION</small><div className="segmented">{values.map((p,i)=><button key={i} className={value===i+1?"active":""} onClick={()=>setValue(i+1)}>TP{i+1} (+{p}%)</button>)}</div></div>}
 function SuperAnalysis({ prices }: { prices: Record<string, string> }) {
   type C = {
     coin: string;
@@ -416,18 +419,18 @@ function SuperAnalysis({ prices }: { prices: Record<string, string> }) {
       }[];
     }>(),
     [min, setMin] = useState(1),
-    [horizon, setHorizon] = useState(3600),
+    [horizon, setHorizon] = useState(3600),[tpLevel,setTpLevel]=useState(1),
     [exporting, setExporting] = useState(false);
   useEffect(() => {
-    api<any>(`/api/reports/super?minSamples=${min}&horizon=${horizon}`).then(
+    api<any>(`/api/reports/super?minSamples=${min}&horizon=${horizon}&tpLevel=${tpLevel}`).then(
       setData,
     );
-  }, [min, horizon]);
+  }, [min, horizon,tpLevel]);
   const exportExcel = async () => {
     setExporting(true);
     requestStarted();
     try {
-      const response = await fetch("/api/reports/super/excel");
+      const response = await fetch(`/api/reports/super/excel?tpLevel=${tpLevel}`);
       if (!response.ok) throw new Error(response.statusText);
       const href = URL.createObjectURL(await response.blob());
       const link = document.createElement("a");
@@ -445,7 +448,7 @@ function SuperAnalysis({ prices }: { prices: Record<string, string> }) {
   return (
     <>
       <div className="super-export-row">
-        <HorizonFilter value={horizon} setValue={setHorizon} />
+        <HorizonFilter value={horizon} setValue={setHorizon} /><TpSelector value={tpLevel} setValue={setTpLevel}/>
         <button className="run" onClick={exportExcel} disabled={exporting}>
           <Download /> {exporting ? "Building Excel…" : "Export all slices"}
         </button>
@@ -919,14 +922,14 @@ function CoinReports({ coins }: { coins: Coin[] }) {
     [selected, setSelected] = useState(""),
     [min, setMin] = useState(1),
     [size, setSize] = useState(3),
-    [horizon, setHorizon] = useState(3600);
+    [horizon, setHorizon] = useState(3600),[tpLevel,setTpLevel]=useState(1);
   useEffect(() => {
-    api<any[]>(`/api/reports/coins?minSamples=${min}&horizon=${horizon}`).then(
+    api<any[]>(`/api/reports/coins?minSamples=${min}&horizon=${horizon}&tpLevel=${tpLevel}`).then(
       (x) => {
         setData(x);
       },
     );
-  }, [min, horizon]);
+  }, [min, horizon,tpLevel]);
   useEffect(() => {
     if (coins.length && !coins.some((x) => x.symbol === selected)) {
       setSelected(coins[0].symbol);
@@ -934,14 +937,14 @@ function CoinReports({ coins }: { coins: Coin[] }) {
   }, [coins, selected]);
   useEffect(() => {
     api<any[]>(
-      `/api/reports/coin-mixes?size=${size}&minSamples=${min}&horizon=${horizon}`,
+      `/api/reports/coin-mixes?size=${size}&minSamples=${min}&horizon=${horizon}&tpLevel=${tpLevel}`,
     ).then(setCoinMixes);
-  }, [size, min, horizon]);
+  }, [size, min, horizon,tpLevel]);
   const report = data.find((x) => x.coin === selected),
     mixes = coinMixes.find((x) => x.coin === selected)?.mixes || [];
   return (
     <>
-      <HorizonFilter value={horizon} setValue={setHorizon} />
+      <HorizonFilter value={horizon} setValue={setHorizon} /><TpSelector value={tpLevel} setValue={setTpLevel}/>
       <ReportFilters
         label="COIN"
         value={selected}
@@ -1024,15 +1027,15 @@ function MixReports() {
     >([]),
     [size, setSize] = useState(3),
     [min, setMin] = useState(1),
-    [horizon, setHorizon] = useState(3600);
+    [horizon, setHorizon] = useState(3600),[tpLevel,setTpLevel]=useState(1);
   useEffect(() => {
     api<any[]>(
-      `/api/reports/mixes?size=${size}&minSamples=${min}&horizon=${horizon}`,
+      `/api/reports/mixes?size=${size}&minSamples=${min}&horizon=${horizon}&tpLevel=${tpLevel}`,
     ).then(setData);
-  }, [size, min, horizon]);
+  }, [size, min, horizon,tpLevel]);
   return (
     <>
-      <HorizonFilter value={horizon} setValue={setHorizon} />
+      <HorizonFilter value={horizon} setValue={setHorizon} /><TpSelector value={tpLevel} setValue={setTpLevel}/>
       <div className="report-filter">
         <div>
           <small>MIX SIZE</small>
@@ -1136,7 +1139,7 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
   const [methods, setMethods] = useState<string[]>([]),
     [selected, setSelected] = useState<string[]>([]),
     [coin, setCoin] = useState("BTC"),
-    [horizon, setHorizon] = useState(3600),
+    [horizon, setHorizon] = useState(3600),[tpLevel,setTpLevel]=useState(1),
     [amount, setAmount] = useState(100),
     [leverage, setLeverage] = useState(5),
     [takerFee, setTakerFee] = useState(0.05),
@@ -1167,7 +1170,7 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
     setError("");
     try {
       setReport(
-        await api<R>("/api/reports/money", {
+        await api<R>(`/api/reports/money?tpLevel=${tpLevel}`, {
           method: "POST",
           body: JSON.stringify({
             coin,
@@ -1196,7 +1199,7 @@ function MoneyReport({ coins }: { coins: Coin[] }) {
         minutes use exact aggregate trades. Liquidation is a simple approximate
         leverage model—not Binance or Bitunix maintenance-margin logic.
       </div>
-      <form className="money-builder panel" onSubmit={run}>
+      <TpSelector value={tpLevel} setValue={setTpLevel}/><form className="money-builder panel" onSubmit={run}>
         <div className="money-fields">
           <label>
             COIN
@@ -1781,10 +1784,10 @@ function Metric({
   );
 }
 function BestMixSignals({coins,admin}:{coins:Coin[];admin:boolean}){
-  type Mix={id:number;coin:string;horizonSeconds:number;mixSize:number;rank:number;methods:string[];samples:number;targetHitRate:number;directionalAccuracy:number;wilsonScore:number};type Sim={id:number;coin:string;pair:string;horizonSeconds:number;mixRank:number;methods:string[];direction:"UP"|"DOWN";agreementCount:number;totalMethods:number;openedAt:string;entryPrice:number;targetPrice:number;stopLossPrice:number;status:string};
-  const [coin,setCoin]=useState("BTC"),[horizon,setHorizon]=useState(900),[mixes,setMixes]=useState<Mix[]>([]),[open,setOpen]=useState<Sim[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState("");
-  useEffect(()=>{if(coins.length&&!coins.some(c=>c.symbol===coin))setCoin(coins[0].symbol)},[coins]);const load=()=>{setError("");Promise.all([api<Mix[]>(`/api/reports/best-mixes?coin=${coin}&horizon=${horizon}`),api<Sim[]>("/api/mix-simulations?status=OPEN")]).then(([m,s])=>{setMixes(m);setOpen(s.filter(x=>x.coin===coin&&x.horizonSeconds===horizon))}).catch(e=>setError(String(e)))};useEffect(load,[coin,horizon]);
-  return <div className="best-signal-view"><section className="panel signal-toolbar"><label>COIN<select value={coin} onChange={e=>setCoin(e.target.value)}>{coins.map(c=><option key={c.id}>{c.symbol}</option>)}</select></label><label>TIME SLICE<select value={horizon} onChange={e=>setHorizon(Number(e.target.value))}>{[60,900,1800,3600,14400,43200,86400].map(x=><option key={x} value={x}>{horizonLabel(x)}</option>)}</select></label>{admin&&<button disabled={busy} onClick={async()=>{setBusy(true);try{await api("/api/reports/best-mixes/rebuild",{method:"POST"});load()}finally{setBusy(false)}}}>{busy?"Rebuilding…":"Rebuild rankings"}</button>}</section>{error&&<div className="form-error">{error}</div>}<div className="best-mix-sizes">{[2,3,4,5,6,7,8].map(size=><section className="panel best-mix-size" key={size}><h2>{size} methods</h2>{mixes.filter(m=>m.mixSize===size).map(m=><article key={m.id}><b>#{m.rank} {m.methods.join(" + ")}</b><div><span>🔢 {m.samples} samples</span><span>🎯 {m.targetHitRate.toFixed(1)}%</span><span>📈 {m.directionalAccuracy.toFixed(1)}%</span><span>📐 Wilson {m.wilsonScore.toFixed(1)}%</span></div></article>)}{!mixes.some(m=>m.mixSize===size)&&<Empty text="Not enough eligible history" />}</section>)}</div><section className="panel open-simulations"><h2>Open simulations</h2>{open.map(s=><article key={s.id}><strong className={s.direction==="UP"?"up":"down"}>{s.direction==="UP"?"LONG":"SHORT"}</strong><span><b>#{s.id} · Mix #{s.mixRank}</b><small>{s.methods.join(" + ")}</small></span><span>🗳 {s.agreementCount}/{s.totalMethods}</span><span>Entry {money(s.entryPrice)}<small>🎯 {money(s.targetPrice)} · 🛑 {money(s.stopLossPrice)}</small></span></article>)}{!open.length&&<Empty text="No open simulations for this slice" />}</section></div>
+  type Mix={id:number;coin:string;horizonSeconds:number;tpLevel:number;targetPercent:number;mixSize:number;rank:number;methods:string[];samples:number;targetHitRate:number;directionalAccuracy:number;wilsonScore:number};type Sim={id:number;coin:string;pair:string;horizonSeconds:number;mixRank:number;methods:string[];direction:"UP"|"DOWN";agreementCount:number;totalMethods:number;openedAt:string;entryPrice:number;tp1Price:number;tp2Price:number;tp3Price:number;sl1Price:number;sl2Price:number;sl3Price:number;status:string};
+  const [coin,setCoin]=useState("BTC"),[horizon,setHorizon]=useState(900),[tpLevel,setTpLevel]=useState(1),[mixes,setMixes]=useState<Mix[]>([]),[open,setOpen]=useState<Sim[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState("");
+  useEffect(()=>{if(coins.length&&!coins.some(c=>c.symbol===coin))setCoin(coins[0].symbol)},[coins]);const load=()=>{setError("");Promise.all([api<Mix[]>(`/api/reports/best-mixes?coin=${coin}&horizon=${horizon}&tpLevel=${tpLevel}`),api<Sim[]>("/api/mix-simulations?status=OPEN")]).then(([m,s])=>{setMixes(m);setOpen(s.filter(x=>x.coin===coin&&x.horizonSeconds===horizon))}).catch(e=>setError(String(e)))};useEffect(load,[coin,horizon,tpLevel]);
+  return <div className="best-signal-view"><TpSelector value={tpLevel} setValue={setTpLevel}/><section className="panel signal-toolbar"><label>COIN<select value={coin} onChange={e=>setCoin(e.target.value)}>{coins.map(c=><option key={c.id}>{c.symbol}</option>)}</select></label><label>TIME SLICE<select value={horizon} onChange={e=>setHorizon(Number(e.target.value))}>{[60,900,1800,3600,14400,43200,86400].map(x=><option key={x} value={x}>{horizonLabel(x)}</option>)}</select></label>{admin&&<button disabled={busy} onClick={async()=>{setBusy(true);try{await api("/api/reports/best-mixes/rebuild",{method:"POST"});load()}finally{setBusy(false)}}}>{busy?"Rebuilding…":"Rebuild rankings"}</button>}</section>{error&&<div className="form-error">{error}</div>}<div className="best-mix-sizes">{[2,3,4,5,6,7,8].map(size=><section className="panel best-mix-size" key={size}><h2>{size} methods</h2>{mixes.filter(m=>m.mixSize===size).map(m=><article key={m.id}><b>#{m.rank} {m.methods.join(" + ")}</b><div><span>🔢 {m.samples} samples</span><span>🎯 TP{m.tpLevel} +{m.targetPercent}% · {m.targetHitRate.toFixed(1)}%</span><span>📈 {m.directionalAccuracy.toFixed(1)}%</span><span>📐 Wilson {m.wilsonScore.toFixed(1)}%</span></div></article>)}{!mixes.some(m=>m.mixSize===size)&&<Empty text="Not enough eligible history" />}</section>)}</div><section className="panel open-simulations"><h2>Open simulations</h2>{open.map(s=><article key={s.id}><strong className={s.direction==="UP"?"up":"down"}>{s.direction==="UP"?"LONG":"SHORT"}</strong><span><b>#{s.id} · Mix #{s.mixRank}</b><small>{s.methods.join(" + ")}</small></span><span>🗳 {s.agreementCount}/{s.totalMethods}</span><span>Entry {money(s.entryPrice)}<small>🎯 {money(s.tp1Price)} / {money(s.tp2Price)} / {money(s.tp3Price)} · 🛑 {money(s.sl1Price)} / {money(s.sl2Price)} / {money(s.sl3Price)}</small></span></article>)}{!open.length&&<Empty text="No open simulations for this slice" />}</section></div>
 }
 function StrategyProfiles({coins,methods,admin}:{coins:Coin[];methods:{id:string;name:string}[];admin:boolean}){
   type P={id:number;strategyCode:string;strategyVersion:number;predictionHorizonSeconds:number;analysisTimeframe:string;parameterKey:string;profileVersion:number;scope:"GLOBAL"|"COIN_SPECIFIC";coin?:string;source:string;trainingSamples:number;validationSamples:number;testSamples:number;targetHitRate:number;directionalAccuracy:number;wilsonDirectionalScore:number;walkForwardPositiveWindows:number;walkForwardWindows:number;walkForwardConsistency:number;selectionScore:number;selectedAt:string;reason:string};
@@ -1872,7 +1875,7 @@ function SettingsView({
 function TelegramSettings(){
   type Configuration={enabled:boolean;environmentConfigured:boolean;chatId:string|null};const [configuration,setConfiguration]=useState<Configuration|null>(null),[enabled,setEnabled]=useState(false),[message,setMessage]=useState(""),[error,setError]=useState("");useEffect(()=>{api<Configuration>("/api/settings/notifications").then(v=>{setConfiguration(v);setEnabled(v.enabled)}).catch(e=>setError(String(e)))},[]);const save=async(e:React.FormEvent)=>{e.preventDefault();try{const v=await api<Configuration>("/api/settings/notifications",{method:"PUT",body:JSON.stringify({enabled})});setConfiguration(v);setMessage("Telegram delivery preference saved");setError("")}catch(e){setError(String(e))}};return <section className="panel settings telegram-settings"><h2>Telegram notifications</h2><p className="settings-note">Secrets are read from TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID on the server and are never stored in the database.</p><div className="telegram-env-status"><b>{configuration?.environmentConfigured?"Configured":"Not configured"}</b><small>{configuration?.chatId||"Add production environment variables to enable delivery"}</small></div><form onSubmit={save}><label className="telegram-toggle"><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)} disabled={!configuration?.environmentConfigured}/><span>Enable signal delivery</span></label><button>Save settings</button></form>{message&&<div className="notice telegram-message">{message}</div>}{error&&<div className="form-error">{error}</div>}</section>
 }
-function MixSignalSettings(){type S={minimumMixSimulationTrades:number;mixTradeStopLossPercent:number;telegramDailyReportEnabled:boolean};const [value,setValue]=useState<S>({minimumMixSimulationTrades:30,mixTradeStopLossPercent:.5,telegramDailyReportEnabled:true}),[message,setMessage]=useState(""),[error,setError]=useState("");useEffect(()=>{api<S>("/api/settings/mix-signals").then(setValue).catch(e=>setError(String(e)))},[]);const save=async(e:React.FormEvent)=>{e.preventDefault();try{setValue(await api<S>("/api/settings/mix-signals",{method:"PUT",body:JSON.stringify(value)}));setMessage("Mix signal settings saved");setError("")}catch(e){setError(String(e))}};return <section className="panel settings"><h2>Best mix simulations</h2><p className="settings-note">Controls persisted rankings and simulated stop-loss monitoring. No real exchange orders are placed.</p><form onSubmit={save}><label>MINIMUM HISTORICAL TRADES<NumberField value={value.minimumMixSimulationTrades} min={1} max={100000} step={1} onChange={x=>setValue({...value,minimumMixSimulationTrades:x})}/></label><label>STOP LOSS %<NumberField value={value.mixTradeStopLossPercent} min={.01} max={20} step={.05} onChange={x=>setValue({...value,mixTradeStopLossPercent:x})}/></label><label className="telegram-toggle"><input type="checkbox" checked={value.telegramDailyReportEnabled} onChange={e=>setValue({...value,telegramDailyReportEnabled:e.target.checked})}/><span>Daily Tehran report</span></label><button>Save settings</button></form>{message&&<div className="notice telegram-message">{message}</div>}{error&&<div className="form-error">{error}</div>}</section>}
+function MixSignalSettings(){type S={minimumMixSimulationTrades:number;takeProfit1Percent:number;takeProfit2Percent:number;takeProfit3Percent:number;stopLoss1Percent:number;stopLoss2Percent:number;stopLoss3Percent:number;telegramDailyReportEnabled:boolean};const [value,setValue]=useState<S>({minimumMixSimulationTrades:30,takeProfit1Percent:.3,takeProfit2Percent:.5,takeProfit3Percent:1,stopLoss1Percent:.3,stopLoss2Percent:.5,stopLoss3Percent:1,telegramDailyReportEnabled:true}),[message,setMessage]=useState(""),[error,setError]=useState("");useEffect(()=>{api<S>("/api/settings/mix-signals").then(setValue).catch(e=>setError(String(e)))},[]);const field=(label:keyof S,title:string)=><label>{title}<NumberField value={value[label] as number} min={.01} max={20} step={.05} onChange={x=>setValue({...value,[label]:x})}/></label>;const save=async(e:React.FormEvent)=>{e.preventDefault();try{setValue(await api<S>("/api/settings/mix-signals",{method:"PUT",body:JSON.stringify(value)}));setMessage("TP/SL ladder saved");setError("")}catch(e){setError(String(e))}};return <section className="panel settings"><h2>Best mix simulations</h2><p className="settings-note">TP and SL levels are percentages from entry and must be strictly increasing. New settings affect new simulations; history keeps its original values.</p><form onSubmit={save}><label>MINIMUM HISTORICAL TRADES<NumberField value={value.minimumMixSimulationTrades} min={1} max={100000} step={1} onChange={x=>setValue({...value,minimumMixSimulationTrades:x})}/></label>{field("takeProfit1Percent","TAKE PROFIT 1 %")}{field("takeProfit2Percent","TAKE PROFIT 2 %")}{field("takeProfit3Percent","TAKE PROFIT 3 %")}{field("stopLoss1Percent","STOP LOSS 1 %")}{field("stopLoss2Percent","STOP LOSS 2 %")}{field("stopLoss3Percent","STOP LOSS 3 %")}<label className="telegram-toggle"><input type="checkbox" checked={value.telegramDailyReportEnabled} onChange={e=>setValue({...value,telegramDailyReportEnabled:e.target.checked})}/><span>Daily Tehran report</span></label><button>Save settings</button></form>{message&&<div className="notice telegram-message">{message}</div>}{error&&<div className="form-error">{error}</div>}</section>}
 function ProfileSelectionSettings(){type S={minimumConfigurationSamples:number;coinProfileMinimumSamples:number;profileReplacementMinimumImprovementPercent:number;profileResearchRoundTripCostPercent:number;profileRefreshIntervalHours:number;automaticProfileResearchEnabled:boolean};const [value,setValue]=useState<S>({minimumConfigurationSamples:100,coinProfileMinimumSamples:250,profileReplacementMinimumImprovementPercent:2,profileResearchRoundTripCostPercent:.1,profileRefreshIntervalHours:24,automaticProfileResearchEnabled:false}),[message,setMessage]=useState(""),[error,setError]=useState("");useEffect(()=>{api<S>("/api/settings/profile-selection").then(setValue).catch(e=>setError(String(e)))},[]);const save=async(e:React.FormEvent)=>{e.preventDefault();try{setValue(await api<S>("/api/settings/profile-selection",{method:"PUT",body:JSON.stringify(value)}));setMessage("Profile selection settings saved");setError("")}catch(e){setError(String(e))}};return <section className="panel settings profile-settings"><h2>Horizon-aware profile selection</h2><p className="settings-note">Controls chronological validation evidence and replacement stability. Research costs are deducted from every simulated observation.</p><form onSubmit={save}><label>GLOBAL MINIMUM SAMPLES<NumberField value={value.minimumConfigurationSamples} min={30} max={100000} step={10} onChange={x=>setValue({...value,minimumConfigurationSamples:x})}/></label><label>COIN OVERRIDE MINIMUM<NumberField value={value.coinProfileMinimumSamples} min={value.minimumConfigurationSamples} max={100000} step={10} onChange={x=>setValue({...value,coinProfileMinimumSamples:x})}/></label><label>MINIMUM SCORE IMPROVEMENT<NumberField value={value.profileReplacementMinimumImprovementPercent} min={0} max={50} step={.25} onChange={x=>setValue({...value,profileReplacementMinimumImprovementPercent:x})}/></label><label>ROUND-TRIP COST %<NumberField value={value.profileResearchRoundTripCostPercent} min={0} max={10} step={.01} onChange={x=>setValue({...value,profileResearchRoundTripCostPercent:x})}/></label><label>REFRESH POLICY HOURS<NumberField value={value.profileRefreshIntervalHours} min={1} max={8760} step={1} onChange={x=>setValue({...value,profileRefreshIntervalHours:x})}/></label><label className="telegram-toggle"><input type="checkbox" checked={value.automaticProfileResearchEnabled} onChange={e=>setValue({...value,automaticProfileResearchEnabled:e.target.checked})}/><span>Enable rolling scheduled research</span></label><button>Save settings</button></form>{message&&<div className="notice telegram-message">{message}</div>}{error&&<div className="form-error">{error}</div>}</section>}
 function Empty({ text }: { text: string }) {
   return <div className="empty">{text}</div>;

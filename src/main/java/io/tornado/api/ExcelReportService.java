@@ -15,11 +15,11 @@ public class ExcelReportService {
     public ExcelReportService(CoinRepository coins,ReportService reports){this.coins=coins;this.reports=reports;}
 
     public byte[] superAnalysis(){return superAnalysis(io.tornado.persistence.Prediction.CURRENT_SIGNAL_VERSION);}
-    public byte[] superAnalysis(int signalVersion){
-        var coinList=coins.findAllByActiveTrueOrderBySymbol();var rows=reports.superExcelRows(signalVersion);
+    public byte[] superAnalysis(int signalVersion){return superAnalysis(signalVersion,1);}public byte[] superAnalysis(int signalVersion,int tpLevel){
+        var coinList=coins.findAllByActiveTrueOrderBySymbol();var rows=reports.superExcelRows(signalVersion,tpLevel);
         Map<String,ReportService.ExcelSliceRow> byKey=new HashMap<>();rows.forEach(r->byKey.put(r.coin()+":"+r.horizon(),r));
         try(var workbook=new XSSFWorkbook();var output=new ByteArrayOutputStream()){
-            CellStyle header=header(workbook),percent=workbook.createCellStyle();percent.setDataFormat(workbook.createDataFormat().getFormat("0.00%"));
+            CellStyle header=header(workbook),percent=workbook.createCellStyle();percent.setDataFormat(workbook.createDataFormat().getFormat("0.00%"));Sheet metadata=workbook.createSheet("Report");writeRow(metadata.createRow(0),header,"Selected TP level","Target definition","Generated at");writeRow(metadata.createRow(1),null,"TP"+tpLevel,"Configured TP"+tpLevel+" percentage",java.time.Instant.now());autosize(metadata,3);
             Sheet coinSheet=workbook.createSheet("Coins");writeRow(coinSheet.createRow(0),header,"Symbol","Binance pair","Active");int coinRow=1;for(var coin:coinList)writeRow(coinSheet.createRow(coinRow++),null,coin.getSymbol(),coin.getPair(),"Yes");coinSheet.setAutoFilter(new org.apache.poi.ss.util.CellRangeAddress(0,Math.max(0,coinRow-1),0,2));autosize(coinSheet,3);
             for(int h=0;h<HORIZONS.length;h++){
                 Sheet sheet=workbook.createSheet(SHEETS[h]);List<String> headings=new ArrayList<>(List.of("Coin","Time slice"));for(int size=1;size<=6;size++)headings.addAll(List.of("Best "+size+" methods","Target-hit rate","Directional accuracy","All predictions","Decisive predictions","Target hits","Directional correct","Same direction","Same-direction target hits"));writeRow(sheet.createRow(0),header,headings.toArray());
