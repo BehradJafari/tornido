@@ -7,6 +7,8 @@ import java.time.Instant;
 
 @Entity @Table(name="predictions")
 public class Prediction {
+    public static final int LEGACY_SIGNAL_VERSION=2;
+    public static final int CURRENT_SIGNAL_VERSION=3;
     @Id @GeneratedValue(strategy=GenerationType.IDENTITY) private Long id;
     @ManyToOne(fetch=FetchType.LAZY, optional=false) @JoinColumn(name="coin_id") private Coin coin;
     @ManyToOne(fetch=FetchType.LAZY) @JoinColumn(name="analysis_run_id") private AnalysisRun analysisRun;
@@ -20,7 +22,7 @@ public class Prediction {
     @Column(nullable=false, precision=30, scale=12) private BigDecimal priceAtPrediction;
     @Column(nullable=false) private long horizonSeconds;
     private Instant targetAt;
-    @Column(nullable=false) private int signalVersion=2;
+    @Column(nullable=false) private int signalVersion=LEGACY_SIGNAL_VERSION;
     @ManyToOne(fetch=FetchType.LAZY) @JoinColumn(name="strategy_horizon_profile_id") private StrategyHorizonProfile strategyHorizonProfile;
     @Column(precision=30, scale=12) private BigDecimal priceAtGrading;
     @Enumerated(EnumType.STRING) @Column(nullable=false, length=12) private Outcome outcome=Outcome.PENDING;
@@ -33,7 +35,7 @@ public class Prediction {
     protected Prediction() {}
     public Prediction(AnalysisRun run,Coin coin,String method,Instant at,Direction direction,BigDecimal price,Duration horizon){this(run,coin,method,1,method,at,price,at,price,direction,horizon,null);}
     public Prediction(AnalysisRun run,Coin coin,String strategyCode,int strategyVersion,String method,Instant signalAt,BigDecimal signalPrice,Instant executionAt,BigDecimal executionPrice,Direction direction,Duration horizon,String candleInterval){analysisRun=run;this.coin=coin;this.strategyCode=strategyCode;this.strategyVersion=strategyVersion;methodName=method;this.signalAt=signalAt;this.signalPrice=signalPrice;predictedAt=executionAt;predictedDirection=direction;priceAtPrediction=executionPrice;horizonSeconds=horizon.toSeconds();targetAt=executionAt.plus(horizon);this.candleInterval=candleInterval;}
-    public Prediction(AnalysisRun run,Coin coin,StrategyHorizonProfile profile,String method,Instant signalAt,BigDecimal signalPrice,Instant executionAt,BigDecimal executionPrice,Direction direction){this(run,coin,profile.getStrategyCode(),profile.getStrategyVersion(),method,signalAt,signalPrice,executionAt,executionPrice,direction,Duration.ofSeconds(profile.getPredictionHorizonSeconds()),profile.getAnalysisTimeframe());strategyHorizonProfile=profile;signalVersion=3;}
+    public Prediction(AnalysisRun run,Coin coin,StrategyHorizonProfile profile,String method,Instant signalAt,BigDecimal signalPrice,Instant executionAt,BigDecimal executionPrice,Direction direction){this(run,coin,profile.getStrategyCode(),profile.getStrategyVersion(),method,signalAt,signalPrice,executionAt,executionPrice,direction,Duration.ofSeconds(profile.getPredictionHorizonSeconds()),profile.getAnalysisTimeframe());strategyHorizonProfile=profile;signalVersion=CURRENT_SIGNAL_VERSION;}
     public void grade(BigDecimal price, Instant at, BigDecimal minimumMove){grade(price,at,at,minimumMove);}
     public void grade(BigDecimal price,Instant priceAt,Instant gradedAt,BigDecimal minimumMove){if(predictedDirection==Direction.NEUTRAL)throw new IllegalStateException("Neutral observations are not predictions and cannot be graded");gradingAttempts++;lastGradingError=null;priceAtGrading=price;gradingPriceAt=priceAt;this.gradedAt=gradedAt;if(targetAt==null)targetAt=predictedAt.plusSeconds(horizonSeconds);targetDelayMilliseconds=Duration.between(targetAt,priceAt).toMillis();BigDecimal change=price.subtract(priceAtPrediction).divide(priceAtPrediction,12,java.math.RoundingMode.HALF_UP);boolean correct=predictedDirection==Direction.UP?change.compareTo(minimumMove)>=0:change.compareTo(minimumMove.negate())<=0;outcome=correct?Outcome.CORRECT:Outcome.INCORRECT;}
     public void recordGradingError(String error){gradingAttempts++;lastGradingError=error==null?"Unknown grading error":error.substring(0,Math.min(500,error.length()));}

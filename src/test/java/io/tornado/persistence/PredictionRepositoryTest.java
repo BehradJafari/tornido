@@ -35,7 +35,7 @@ class PredictionRepositoryTest {
         prediction.grade(new BigDecimal("101"),predictedAt.plusSeconds(60),new BigDecimal("0.003"));
         entityManager.flush();entityManager.clear();
 
-        var rows=predictions.findGradedReportRows(60);
+        var rows=predictions.findGradedReportRows(60,2);
         assertThat(rows).hasSize(1);
         assertThat(rows.getFirst().getCoinSymbol()).isEqualTo("BTC");
         assertThat(rows.getFirst().getMethodName()).isEqualTo("A");

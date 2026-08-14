@@ -18,13 +18,13 @@ public class LivePriceStream {
     private static final Logger log=LoggerFactory.getLogger(LivePriceStream.class);
     private final CoinRepository coins; private final TornadoProperties props; private final ObjectMapper json;private final MixTradeSimulationService simulations;
     private final HttpClient client=HttpClient.newHttpClient(); private final Sinks.Many<PriceTick> sink=Sinks.many().multicast().directBestEffort();
-    private final Map<String,PriceTick> latest=new ConcurrentHashMap<>();
+    private final Map<String,PriceTick> latest=new ConcurrentHashMap<>();private final Map<String,Long> lastAggregateIds=new ConcurrentHashMap<>();
     private volatile WebSocket socket; private volatile String subscribed="";
     public LivePriceStream(CoinRepository coins,TornadoProperties props,ObjectMapper json,MixTradeSimulationService simulations){this.coins=coins;this.props=props;this.json=json;this.simulations=simulations;}
     public Flux<PriceTick> flux(){return sink.asFlux();}
     public Map<String,PriceTick> latest(){return Map.copyOf(latest);}
     @Scheduled(initialDelay=1000,fixedDelay=30000) public synchronized void ensureSubscription(){
-        String streams=coins.findAllByActiveTrueOrderBySymbol().stream().map(c->c.getPair().toLowerCase()+"@ticker").collect(Collectors.joining("/"));
+        String streams=coins.findAllByActiveTrueOrderBySymbol().stream().map(c->c.getPair().toLowerCase()+"@aggTrade").collect(Collectors.joining("/"));
         if(streams.isBlank()||streams.equals(subscribed)&&socket!=null)return;
         if(socket!=null)socket.sendClose(WebSocket.NORMAL_CLOSURE,"resubscribe");
         subscribed=streams;String url=props.binance().websocketBaseUrl()+"/stream?streams="+streams;
@@ -32,9 +32,9 @@ public class LivePriceStream {
     }
     @PreDestroy void close(){if(socket!=null)socket.abort();}
     private class Listener implements WebSocket.Listener {
-        private final StringBuilder text=new StringBuilder();
+        private final StringBuilder text=new StringBuilder();private final java.util.Set<String>recovered=java.util.concurrent.ConcurrentHashMap.newKeySet();
         public void onOpen(WebSocket ws){log.info("Binance live stream connected");ws.request(1);}
-        public CompletionStage<?> onText(WebSocket ws,CharSequence data,boolean last){text.append(data);if(last)try{var n=json.readTree(text.toString()).get("data");var tick=new PriceTick(n.get("s").asText(),n.get("c").asText(),System.currentTimeMillis());latest.put(tick.pair(),tick);sink.tryEmitNext(tick);try{simulations.observe(tick.pair(),new java.math.BigDecimal(tick.price()),java.time.Instant.ofEpochMilli(tick.timestamp()));}catch(Exception e){log.warn("Mix simulation price check failed for {} without affecting live prices: {}",tick.pair(),e.getMessage());}}catch(Exception e){log.debug("Bad ticker message: {}",e.getMessage());}finally{text.setLength(0);}ws.request(1);return null;}
+        public CompletionStage<?> onText(WebSocket ws,CharSequence data,boolean last){text.append(data);if(last)try{var n=json.readTree(text.toString()).get("data");String pair=n.get("s").asText();long aggregateId=n.get("a").asLong(),timestamp=n.get("T").asLong();var tick=new PriceTick(pair,n.get("p").asText(),timestamp);latest.put(pair,tick);sink.tryEmitNext(tick);try{Long previous=lastAggregateIds.get(pair);boolean gap=previous!=null&&aggregateId>previous+1;if(!recovered.contains(pair)||gap){simulations.recover(pair,java.time.Instant.ofEpochMilli(timestamp));recovered.add(pair);}simulations.observe(pair,new java.math.BigDecimal(tick.price()),java.time.Instant.ofEpochMilli(timestamp));lastAggregateIds.put(pair,aggregateId);}catch(Exception e){log.warn("Mix simulation recovery/check failed for {} without affecting live prices: {}",pair,e.getMessage());}}catch(Exception e){log.debug("Bad aggregate-trade message: {}",e.getMessage());}finally{text.setLength(0);}ws.request(1);return null;}
         public CompletionStage<?> onClose(WebSocket ws,int code,String reason){socket=null;return null;}
         public void onError(WebSocket ws,Throwable error){log.warn("Binance live stream error: {}",error.getMessage());socket=null;}
     }

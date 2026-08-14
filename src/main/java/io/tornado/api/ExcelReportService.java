@@ -14,8 +14,9 @@ public class ExcelReportService {
     private final CoinRepository coins;private final ReportService reports;
     public ExcelReportService(CoinRepository coins,ReportService reports){this.coins=coins;this.reports=reports;}
 
-    public byte[] superAnalysis(){
-        var coinList=coins.findAllByActiveTrueOrderBySymbol();var rows=reports.superExcelRows();
+    public byte[] superAnalysis(){return superAnalysis(io.tornado.persistence.Prediction.CURRENT_SIGNAL_VERSION);}
+    public byte[] superAnalysis(int signalVersion){
+        var coinList=coins.findAllByActiveTrueOrderBySymbol();var rows=reports.superExcelRows(signalVersion);
         Map<String,ReportService.ExcelSliceRow> byKey=new HashMap<>();rows.forEach(r->byKey.put(r.coin()+":"+r.horizon(),r));
         try(var workbook=new XSSFWorkbook();var output=new ByteArrayOutputStream()){
             CellStyle header=header(workbook),percent=workbook.createCellStyle();percent.setDataFormat(workbook.createDataFormat().getFormat("0.00%"));

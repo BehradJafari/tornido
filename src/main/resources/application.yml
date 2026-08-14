@@ -24,9 +24,9 @@ tornado:
     bot-token: ${TELEGRAM_BOT_TOKEN:}
     chat-id: ${TELEGRAM_CHAT_ID:}
   auth:
-    username: ${TORNADO_ADMIN_USERNAME:tornado-admin}
-    password: ${TORNADO_ADMIN_PASSWORD:local-development-password}
-    jwt-secret: ${TORNADO_JWT_SECRET:local-development-jwt-secret-change-me}
+    username: ${TORNADO_ADMIN_USERNAME}
+    password: ${TORNADO_ADMIN_PASSWORD}
+    jwt-secret: ${TORNADO_JWT_SECRET}
     token-ttl: ${TORNADO_TOKEN_TTL:12h}
   binance:
     rest-base-url: ${BINANCE_REST_URL:https://api.binance.com}

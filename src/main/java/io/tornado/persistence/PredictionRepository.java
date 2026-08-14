@@ -17,8 +17,8 @@ public interface PredictionRepository extends JpaRepository<Prediction,Long> {
     @EntityGraph(attributePaths={"coin","analysisRun"})
     @Query("select p from Prediction p where (:coin is null or p.coin.symbol=:coin) and (:method is null or p.methodName=:method) and p.predictedAt between :from and :to order by p.predictedAt desc")
     List<Prediction> searchAll(@Param("coin") String coin,@Param("method") String method,@Param("from") Instant from,@Param("to") Instant to);
-    @Query("select p.methodName, count(p), sum(case when p.outcome='CORRECT' then 1 else 0 end), sum(case when (p.predictedDirection='UP' and p.priceAtGrading>p.priceAtPrediction) or (p.predictedDirection='DOWN' and p.priceAtGrading<p.priceAtPrediction) then 1 else 0 end) from Prediction p where p.signalVersion=2 and p.outcome in ('CORRECT','INCORRECT') and p.predictedAt>=:from and (:coin is null or p.coin.symbol=:coin) and p.horizonSeconds=:horizon group by p.methodName")
-    List<Object[]> leaderboard(@Param("coin") String coin,@Param("from") Instant from,@Param("horizon") long horizon);
+    @Query("select p.methodName, count(p), sum(case when p.outcome='CORRECT' then 1 else 0 end), sum(case when (p.predictedDirection='UP' and p.priceAtGrading>p.priceAtPrediction) or (p.predictedDirection='DOWN' and p.priceAtGrading<p.priceAtPrediction) then 1 else 0 end) from Prediction p where p.signalVersion=:signalVersion and p.outcome in ('CORRECT','INCORRECT') and p.predictedAt>=:from and (:coin is null or p.coin.symbol=:coin) and p.horizonSeconds=:horizon group by p.methodName")
+    List<Object[]> leaderboard(@Param("coin") String coin,@Param("from") Instant from,@Param("horizon") long horizon,@Param("signalVersion") int signalVersion);
     @EntityGraph(attributePaths={"coin","analysisRun"}) List<Prediction> findTop200ByOrderByPredictedAtDesc();
     @EntityGraph(attributePaths={"coin","analysisRun"})
     List<Prediction> findByAnalysisRunIdOrderByCoinSymbolAscMethodNameAsc(Long runId);
@@ -32,9 +32,9 @@ public interface PredictionRepository extends JpaRepository<Prediction,Long> {
                p.priceAtPrediction as priceAtPrediction,p.horizonSeconds as horizonSeconds,
                p.priceAtGrading as priceAtGrading,p.outcome as outcome
         from Prediction p
-        where p.signalVersion=2 and p.outcome in ('CORRECT','INCORRECT') and p.horizonSeconds=:horizon
+        where p.signalVersion=:signalVersion and p.outcome in ('CORRECT','INCORRECT') and p.horizonSeconds=:horizon
         """)
-    List<ReportRow> findGradedReportRows(@Param("horizon") long horizon);
+    List<ReportRow> findGradedReportRows(@Param("horizon") long horizon,@Param("signalVersion") int signalVersion);
 
     @Query("""
         select p.analysisRun.id as runId,p.coin.id as coinId,p.coin.symbol as coinSymbol,p.coin.pair as coinPair,
@@ -42,9 +42,9 @@ public interface PredictionRepository extends JpaRepository<Prediction,Long> {
                p.priceAtPrediction as priceAtPrediction,p.horizonSeconds as horizonSeconds,
                p.priceAtGrading as priceAtGrading,p.outcome as outcome
         from Prediction p
-        where p.signalVersion=2 and p.outcome in ('CORRECT','INCORRECT')
+        where p.signalVersion=:signalVersion and p.outcome in ('CORRECT','INCORRECT')
         """)
-    List<ReportRow> findAllGradedReportRows();
+    List<ReportRow> findAllGradedReportRows(@Param("signalVersion") int signalVersion);
 
     @Query("""
         select p.analysisRun.id as runId,p.coin.id as coinId,p.coin.symbol as coinSymbol,p.coin.pair as coinPair,
@@ -52,19 +52,19 @@ public interface PredictionRepository extends JpaRepository<Prediction,Long> {
                p.priceAtPrediction as priceAtPrediction,p.horizonSeconds as horizonSeconds,
                p.priceAtGrading as priceAtGrading,p.outcome as outcome
         from Prediction p
-        where p.signalVersion=2 and p.outcome in ('CORRECT','INCORRECT') and p.horizonSeconds=:horizon
+        where p.signalVersion=:signalVersion and p.outcome in ('CORRECT','INCORRECT') and p.horizonSeconds=:horizon
           and p.coin.symbol=:coin and p.methodName in :methods
         """)
-    List<ReportRow> findMoneyReportRows(@Param("coin") String coin,@Param("horizon") long horizon,@Param("methods") Collection<String> methods);
+    List<ReportRow> findMoneyReportRows(@Param("coin") String coin,@Param("horizon") long horizon,@Param("methods") Collection<String> methods,@Param("signalVersion") int signalVersion);
 
     @Query("""
         select p.analysisRun.id as runId,p.coin.id as coinId,p.coin.symbol as coinSymbol,p.coin.pair as coinPair,
                p.methodName as methodName,p.strategyCode as strategyCode,p.strategyVersion as strategyVersion,p.predictedAt as predictedAt,p.predictedDirection as predictedDirection,
                p.priceAtPrediction as priceAtPrediction,p.horizonSeconds as horizonSeconds,
                p.priceAtGrading as priceAtGrading,p.outcome as outcome
-        from Prediction p where p.analysisRun.id=:runId and p.signalVersion=2 and p.horizonSeconds=:horizon
+        from Prediction p where p.analysisRun.id=:runId and p.signalVersion=:signalVersion and p.horizonSeconds=:horizon
         """)
-    List<ReportRow> findLiveReportRows(@Param("runId") long runId,@Param("horizon") long horizon);
+    List<ReportRow> findLiveReportRows(@Param("runId") long runId,@Param("horizon") long horizon,@Param("signalVersion") int signalVersion);
 
     @Query("""
         select p.analysisRun.id as runId,p.coin.id as coinId,p.coin.symbol as coinSymbol,p.coin.pair as coinPair,

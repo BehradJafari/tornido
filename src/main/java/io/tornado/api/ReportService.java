@@ -14,30 +14,34 @@ public class ReportService {
     private final BinanceMarketDataClient market;
     public ReportService(PredictionRepository predictions,AnalysisRunRepository runs,BinanceMarketDataClient market){this.predictions=predictions;this.runs=runs;this.market=market;}
 
-    public List<CoinReport> coinReports(int minSamples,long horizon){
+    public List<CoinReport> coinReports(int minSamples,long horizon){return coinReports(minSamples,horizon,Prediction.CURRENT_SIGNAL_VERSION);}
+    public List<CoinReport> coinReports(int minSamples,long horizon,int signalVersion){
         Map<String,Map<String,Score>> scores=new TreeMap<>();
         requireSupportedHorizon(horizon);
-        for(ReportRow p:predictions.findGradedReportRows(horizon)) scores.computeIfAbsent(p.getCoinSymbol(),x->new HashMap<>()).computeIfAbsent(p.getMethodName(),x->new Score()).add(p);
+        requireSignalVersion(signalVersion);for(ReportRow p:predictions.findGradedReportRows(horizon,signalVersion)) scores.computeIfAbsent(p.getCoinSymbol(),x->new HashMap<>()).computeIfAbsent(p.getMethodName(),x->new Score()).add(p);
         List<CoinReport> result=new ArrayList<>();
         scores.forEach((coin,methods)->{var rows=methods.entrySet().stream().filter(e->e.getValue().total>=minSamples).map(e->new MethodAccuracy(e.getKey(),e.getValue().total,e.getValue().targetCorrect,e.getValue().targetHitRate(),e.getValue().directionalCorrect,e.getValue().directionalAccuracy())).sorted(Comparator.comparingDouble(MethodAccuracy::targetHitRate).reversed().thenComparing(Comparator.comparingLong(MethodAccuracy::samples).reversed())).toList();result.add(new CoinReport(coin,rows));});
         return result;
     }
 
-    public List<MixAccuracy> mixReports(int minSamples,int size,long horizon){
+    public List<MixAccuracy> mixReports(int minSamples,int size,long horizon){return mixReports(minSamples,size,horizon,Prediction.CURRENT_SIGNAL_VERSION);}
+    public List<MixAccuracy> mixReports(int minSamples,int size,long horizon,int signalVersion){
         validateMixSize(size);
-        requireSupportedHorizon(horizon);
-        return calculateMixes(predictions.findGradedReportRows(horizon),minSamples,size);
+        requireSupportedHorizon(horizon);requireSignalVersion(signalVersion);
+        return calculateMixes(predictions.findGradedReportRows(horizon,signalVersion),minSamples,size);
     }
 
-    public List<CoinMixReport> coinMixReports(int minSamples,int size,long horizon){
-        validateMixSize(size);requireSupportedHorizon(horizon);Map<String,List<ReportRow>> byCoin=new TreeMap<>();predictions.findGradedReportRows(horizon).forEach(p->byCoin.computeIfAbsent(p.getCoinSymbol(),x->new ArrayList<>()).add(p));
+    public List<CoinMixReport> coinMixReports(int minSamples,int size,long horizon){return coinMixReports(minSamples,size,horizon,Prediction.CURRENT_SIGNAL_VERSION);}
+    public List<CoinMixReport> coinMixReports(int minSamples,int size,long horizon,int signalVersion){
+        validateMixSize(size);requireSupportedHorizon(horizon);requireSignalVersion(signalVersion);Map<String,List<ReportRow>> byCoin=new TreeMap<>();predictions.findGradedReportRows(horizon,signalVersion).forEach(p->byCoin.computeIfAbsent(p.getCoinSymbol(),x->new ArrayList<>()).add(p));
         return byCoin.entrySet().stream().map(e->new CoinMixReport(e.getKey(),size,calculateMixes(e.getValue(),minSamples,size))).toList();
     }
 
-    public SuperReport superReport(int minSamples,long horizon){
-        requireSupportedHorizon(horizon);List<ReportRow> graded=predictions.findGradedReportRows(horizon);
+    public SuperReport superReport(int minSamples,long horizon){return superReport(minSamples,horizon,Prediction.CURRENT_SIGNAL_VERSION);}
+    public SuperReport superReport(int minSamples,long horizon,int signalVersion){
+        requireSupportedHorizon(horizon);requireSignalVersion(signalVersion);List<ReportRow> graded=predictions.findGradedReportRows(horizon,signalVersion);
         Map<String,List<ReportRow>> byCoin=new TreeMap<>();graded.forEach(p->byCoin.computeIfAbsent(p.getCoinSymbol(),x->new ArrayList<>()).add(p));
-        Map<String,List<ReportRow>> latest=new HashMap<>();runs.findTopByOrderByCreatedAtDesc().ifPresent(r->predictions.findLiveReportRows(r.getId(),horizon).forEach(p->latest.computeIfAbsent(p.getCoinSymbol(),x->new ArrayList<>()).add(p)));
+        Map<String,List<ReportRow>> latest=new HashMap<>();runs.findTopByOrderByCreatedAtDesc().ifPresent(r->predictions.findLiveReportRows(r.getId(),horizon,signalVersion).forEach(p->latest.computeIfAbsent(p.getCoinSymbol(),x->new ArrayList<>()).add(p)));
         List<CoinOpportunity> coins=new ArrayList<>();
         byCoin.forEach((coin,rows)->{
             Map<String,Score> methodScores=new HashMap<>();rows.forEach(p->methodScores.computeIfAbsent(p.getMethodName(),x->new Score()).add(p));
@@ -51,15 +55,17 @@ public class ReportService {
         return new SuperReport(java.time.Instant.now(),minSamples,coins,calculateMixes(graded,minSamples,3).stream().limit(10).toList());
     }
 
-    public List<ExcelSliceRow> superExcelRows(){
+    public List<ExcelSliceRow> superExcelRows(){return superExcelRows(Prediction.CURRENT_SIGNAL_VERSION);}
+    public List<ExcelSliceRow> superExcelRows(int signalVersion){requireSignalVersion(signalVersion);
         Map<String,Map<Long,List<ReportRow>>> grouped=new TreeMap<>();
-        for(ReportRow p:predictions.findAllGradedReportRows())grouped.computeIfAbsent(p.getCoinSymbol(),x->new TreeMap<>()).computeIfAbsent(p.getHorizonSeconds(),x->new ArrayList<>()).add(p);
+        for(ReportRow p:predictions.findAllGradedReportRows(signalVersion))grouped.computeIfAbsent(p.getCoinSymbol(),x->new TreeMap<>()).computeIfAbsent(p.getHorizonSeconds(),x->new ArrayList<>()).add(p);
         List<ExcelSliceRow> result=new ArrayList<>();
         grouped.forEach((coin,slices)->slices.forEach((horizon,rows)->{var all=calculateMixesBySizes(rows,1,1,2,3,4,5,6);List<BestMixBySize> best=new ArrayList<>();for(int size=1;size<=6;size++){var mixes=all.getOrDefault(size,List.of());best.add(new BestMixBySize(size,mixes.isEmpty()?null:mixes.getFirst()));}result.add(new ExcelSliceRow(coin,horizon,best));}));
         return result;
     }
 
-    public MoneyReport moneyReport(MoneyRequest request){
+    public MoneyReport moneyReport(MoneyRequest request){return moneyReport(request,Prediction.CURRENT_SIGNAL_VERSION);}
+    public MoneyReport moneyReport(MoneyRequest request,int signalVersion){requireSignalVersion(signalVersion);
         if(request.methods()==null||request.methods().size()<2||request.methods().size()>8)throw new IllegalArgumentException("select between 2 and 8 methods");
         if(request.tradeAmount()<=0||request.tradeAmount()>1_000_000)throw new IllegalArgumentException("trade amount must be positive and at most 1,000,000 USDT");
         if(request.leverage()<1||request.leverage()>125)throw new IllegalArgumentException("leverage must be between 1x and 125x");
@@ -67,7 +73,7 @@ public class ReportService {
         Set<String> selected=new TreeSet<>(request.methods());
         if(selected.size()<2)throw new IllegalArgumentException("select at least two distinct methods");
         requireSupportedHorizon(request.horizon());Map<GroupKey,List<ReportRow>> groups=new HashMap<>();
-        predictions.findMoneyReportRows(request.coin().toUpperCase(Locale.ROOT),request.horizon(),selected).forEach(p->{if(p.getRunId()!=null)groups.computeIfAbsent(new GroupKey(p.getRunId(),p.getCoinId(),p.getHorizonSeconds()),x->new ArrayList<>()).add(p);});
+        predictions.findMoneyReportRows(request.coin().toUpperCase(Locale.ROOT),request.horizon(),selected,signalVersion).forEach(p->{if(p.getRunId()!=null)groups.computeIfAbsent(new GroupKey(p.getRunId(),p.getCoinId(),p.getHorizonSeconds()),x->new ArrayList<>()).add(p);});
         List<TradeCandidate> candidates=new ArrayList<>();for(List<ReportRow> rows:groups.values()){Map<String,ReportRow> byMethod=new HashMap<>();rows.forEach(p->byMethod.put(p.getMethodName(),p));if(!byMethod.keySet().containsAll(selected))continue;int ups=0;for(String method:selected)if(byMethod.get(method).getPredictedDirection()==Direction.UP)ups++;if(ups*2==selected.size())continue;ReportRow sample=byMethod.get(selected.iterator().next());if(sample.getPriceAtGrading()==null)continue;boolean up=ups*2>selected.size();candidates.add(new TradeCandidate(sample.getPredictedAt(),sample.getPredictedAt().plusSeconds(sample.getHorizonSeconds()),sample.getCoinPair(),up,sample.getPriceAtPrediction().doubleValue(),sample.getPriceAtGrading().doubleValue(),mixCorrect(sample,up)));}
         candidates.sort(Comparator.comparing(TradeCandidate::time));
         List<MoneyTrade> trades=new ArrayList<>();double grossTotal=0,netTotal=0,totalCosts=0,realizedPeak=0,realizedDrawdown=0;int profitable=0,losing=0,breakEven=0,targetHits=0,liquidations=0,index=0;double notional=request.tradeAmount()*request.leverage();for(TradeCandidate c:candidates){double marketReturn=(c.exit()-c.entry())/c.entry(),directional=c.up()?marketReturn:-marketReturn,leveraged=directional*request.leverage();var range=market.priceRange(c.pair(),c.time(),c.target());double liquidationPrice=c.up()?c.entry()*(1.0-1.0/request.leverage()):c.entry()*(1.0+1.0/request.leverage());boolean liquidated=c.up()?range.low().doubleValue()<=liquidationPrice:range.high().doubleValue()>=liquidationPrice;double gross=liquidated?-request.tradeAmount():request.tradeAmount()*leveraged;double costs=notional*((2*request.takerFeePercent()+2*request.slippagePercent()+request.spreadPercent()+request.fundingRatePercent())/100.0);double net=liquidated?-request.tradeAmount():Math.max(-request.tradeAmount(),gross-costs);grossTotal+=gross;totalCosts+=liquidated?0:costs;netTotal+=net;realizedPeak=Math.max(realizedPeak,netTotal);realizedDrawdown=Math.max(realizedDrawdown,realizedPeak-netTotal);if(net>1e-9)profitable++;else if(net< -1e-9)losing++;else breakEven++;if(c.targetHit())targetHits++;if(liquidated)liquidations++;trades.add(new MoneyTrade(++index,c.time(),c.target(),c.up()?"LONG":"SHORT",c.entry(),c.exit(),marketReturn*100,liquidationPrice,gross,liquidated?0:costs,net,netTotal,liquidated));}
@@ -94,6 +100,7 @@ public class ReportService {
     private double wilson(long correct,long total){if(total==0)return 0;double z=1.96,p=(double)correct/total,z2=z*z;return (p+z2/(2*total)-z*Math.sqrt((p*(1-p)+z2/(4*total))/total))/(1+z2/total);}
     private void validateMixSize(int size){if(size<2||size>4)throw new IllegalArgumentException("mix size must be 2, 3, or 4");}
     public static long requireSupportedHorizon(long horizon){if(!Set.of(60L,900L,1800L,3600L,14400L,43200L,86400L).contains(horizon))throw new IllegalArgumentException("horizon must be one of 60, 900, 1800, 3600, 14400, 43200, or 86400 seconds");return horizon;}
+    public static int requireSignalVersion(int version){if(version!=Prediction.LEGACY_SIGNAL_VERSION&&version!=Prediction.CURRENT_SIGNAL_VERSION)throw new IllegalArgumentException("signalVersion must be 2 or 3");return version;}
     private boolean mixCorrect(ReportRow p,boolean predictedUp){if(p.getPriceAtGrading()==null)return false;var change=p.getPriceAtGrading().subtract(p.getPriceAtPrediction()).divide(p.getPriceAtPrediction(),12,java.math.RoundingMode.HALF_UP);return predictedUp?change.compareTo(MINIMUM_CORRECT_MOVE)>=0:change.compareTo(MINIMUM_CORRECT_MOVE.negate())<=0;}
     private boolean directionCorrect(ReportRow p,boolean predictedUp){if(p.getPriceAtGrading()==null)return false;int comparison=p.getPriceAtGrading().compareTo(p.getPriceAtPrediction());return predictedUp?comparison>0:comparison<0;}
     private class Score {long total,targetCorrect,directionalCorrect;void add(ReportRow p){total++;if(p.getOutcome()==Outcome.CORRECT)targetCorrect++;if(directionCorrect(p,p.getPredictedDirection()==Direction.UP))directionalCorrect++;}double targetHitRate(){return total==0?0:targetCorrect*100.0/total;}double directionalAccuracy(){return total==0?0:directionalCorrect*100.0/total;}}

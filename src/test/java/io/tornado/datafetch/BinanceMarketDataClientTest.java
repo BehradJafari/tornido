@@ -83,6 +83,16 @@ class BinanceMarketDataClientTest {
         assertThat(range.low()).isEqualByComparingTo("95");assertThat(range.high()).isEqualByComparingTo("110");server.verify();
     }
 
+    @Test void historicalTradeReplayPreservesFirstTouchOrder(){
+        RestClient.Builder builder=RestClient.builder();MockRestServiceServer server=MockRestServiceServer.bindTo(builder).build();
+        Instant from=Instant.parse("2026-01-01T00:00:00Z"),to=from.plusSeconds(30);
+        server.expect(requestTo("https://binance.test/api/v3/aggTrades?symbol=BTCUSDT&startTime="+from.toEpochMilli()+"&endTime="+to.toEpochMilli()+"&limit=1000")).andRespond(withSuccess("[{\"a\":10,\"p\":\"99.4\",\"T\":"+from.plusSeconds(10).toEpochMilli()+"},{\"a\":11,\"p\":\"100.5\",\"T\":"+from.plusSeconds(20).toEpochMilli()+"}]",MediaType.APPLICATION_JSON));
+        var trades=client(builder).historicalTrades("BTCUSDT",from,to);
+        assertThat(trades).extracting(BinanceMarketDataClient.AggregateTrade::id).containsExactly(10L,11L);
+        assertThat(trades).extracting(BinanceMarketDataClient.AggregateTrade::price).containsExactly(new BigDecimal("99.4"),new BigDecimal("100.5"));
+        server.verify();
+    }
+
     private BinanceMarketDataClient client(RestClient.Builder builder){
         return client(builder,Clock.systemUTC());
     }

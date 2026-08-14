@@ -16,6 +16,9 @@ Prerequisites: Java 21, Maven 3.9+, Node 20+ and npm.
 ```bash
 cd /home/behrad/tornado
 chmod +x run.sh
+export TORNADO_ADMIN_USERNAME=local-admin
+export TORNADO_ADMIN_PASSWORD='replace-with-a-long-local-password'
+export TORNADO_JWT_SECRET="$(openssl rand -hex 32)"
 ./run.sh
 ```
 
@@ -45,7 +48,7 @@ Production deployment files are under `deploy/`. The complete Ubuntu Server 24.0
 - `deploy/backup-postgres.sh` — PostgreSQL backup with 14-day retention
 - `deploy/reset-postgres.sh` — guarded full database reset with a pre-reset backup
 
-The first `ADMIN` account is created from `TORNADO_ADMIN_USERNAME` and `TORNADO_ADMIN_PASSWORD` during startup. Administrators can manage persistent `ADMIN` and `USER` accounts under **Settings → Application users**. Passwords are encoded in PostgreSQL; standard users cannot access `/api/users/**`.
+The first `ADMIN` account is created from `TORNADO_ADMIN_USERNAME` and `TORNADO_ADMIN_PASSWORD` during startup. `TORNADO_ADMIN_USERNAME`, `TORNADO_ADMIN_PASSWORD`, and `TORNADO_JWT_SECRET` are mandatory; Tornido refuses to start with missing, placeholder, or repository-known development secrets. Administrators can manage persistent `ADMIN` and `USER` accounts under **Settings → Application users**. Passwords are encoded in PostgreSQL; standard users cannot access `/api/users/**`.
 
 ## PostgreSQL
 
@@ -107,7 +110,7 @@ Twenty USDT pairs are seeded on an empty database. Coins added or removed in Set
 - `GET /api/reports/super/excel` (downloads an XLSX containing all coins and the best 1–6 method mixes for every checker slice)
 - `POST /api/reports/money` with coin, horizon, 2–8 methods, USDT margin, 1–125x leverage, and optional `takerFeePercent`, `slippagePercent`, `spreadPercent`, and `fundingRatePercent`
 
-Ranked report endpoints accept `horizon=60|900|1800|3600|14400|43200|86400` and require one slice at a time. Combining the seven correlated outcomes from one signal would overstate the independent sample count. Every new manual or scheduled analysis creates predictions for all seven slices when a strategy emits an actionable signal.
+Ranked report endpoints accept `horizon=60|900|1800|3600|14400|43200|86400` and require one slice at a time. Operational reports default to `signalVersion=3`; add `signalVersion=2` explicitly only for legacy audit comparisons. Combining horizons or generations is prohibited. Every new manual or scheduled analysis independently evaluates all seven slices when a strategy emits an actionable signal.
 
 The Money report is a historical scenario tool, not a profit forecast. It reports gross P&L, configurable taker fees/slippage/spread/funding estimates, and net P&L separately. Profitable-trade rate is based on positive net P&L; target-hit rate remains a separate ±0.30% research metric. Liquidation uses aggregate trades for partial first/last minutes and one-minute highs/lows only for fully covered middle minutes. Its `INDEPENDENT_TRADES_SIMPLE_LIQUIDATION` model uses approximate liquidation prices, not exchange maintenance-margin, mark-price, wallet-balance or risk-tier calculations.
 
@@ -125,7 +128,7 @@ Prediction rows carry both the global signal-semantics generation and stable per
 
 Reports expose target-hit rate and directional accuracy independently. Live consensus is labeled consensus strength, not probability: only methods whose 95% Wilson lower bound is above 50% receive voting weight. This score is not an empirically calibrated chance of success.
 
-The default predictions endpoint returns only corrected generation-2 signals. Historical grading retries failed price retrieval up to five times, then marks the row `UNGRADABLE`; these rows remain auditable but are excluded from accuracy denominators.
+The default predictions endpoint and all operational reports return generation-3 signals. Version 2 remains available with `?signalVersion=2`, and `/api/predictions/history` remains the all-generation audit endpoint. Historical grading retries failed price retrieval up to five times, then marks the row `UNGRADABLE`; these rows remain auditable but are excluded from accuracy denominators.
 
 ## Verification
 
@@ -152,7 +155,7 @@ The bot must be able to post and edit messages in the configured destination. If
 
 ## Horizon-aware strategy profiles (signal generation v3)
 
-New analyses use immutable `StrategyHorizonProfile` records. Each strategy and prediction horizon independently resolves an analysis candle timeframe and a constrained parameter key. A coin-specific profile may override the global profile only after meeting the stricter coin sample requirement and materially beating the global score. Predictions retain the selected profile ID, strategy/version, timeframe, signal candle close/price, execution time/price, and horizon. Historical generation-2 predictions and their existing reports remain unchanged and are never mixed with generation 3.
+New analyses use immutable `StrategyHorizonProfile` records. Each strategy and prediction horizon independently resolves an analysis candle timeframe and a constrained parameter key. A coin-specific profile may override the global profile only after meeting the stricter coin sample requirement and materially beating the global score. Predictions retain the selected profile ID, strategy/version, timeframe, signal candle close/price, execution time/price, and horizon. Historical generation-2 predictions remain unchanged for audit, while current reports default exclusively to generation 3.
 
 Until historical research validates a challenger, Tornido uses deterministic fallbacks: `1m→1m`, `15m→5m`, `30m→15m`, `1h→15m`, `4h→1h`, `12h→4h`, and `24h→4h`. These are explicitly fallback profiles, not claims of optimality. Candidate timeframe spaces are:
 
@@ -181,4 +184,6 @@ score = 100 × (
 
 Wilson bounds use 95% confidence (`z=1.96`). Net returns deduct the configured round-trip research cost. Defaults require 100 global validation samples, 250 coin-specific samples, and a two-point validation-score improvement before replacement. Profile history is retained instead of overwritten. Final-test outcomes are displayed as evidence only and never participate in candidate ranking or profile replacement.
 
-Normal snapshots do not optimize. They load active profiles once, fetch each `pair + timeframe` candle series once per run, evaluate all dependent strategies from that cache, and use completed candles only. Historical research is available from the **Strategy profiles** page or `POST /api/reports/strategy-profiles/research`. Scheduled rolling research is opt-in because Binance backfills are network- and rate-limit-intensive.
+Normal snapshots do not optimize. They load active profiles once, fetch each `pair + timeframe` candle series once per run, evaluate all dependent strategies from that cache, and use completed candles only. Historical research uses the configured production snapshot cadence, including overlapping horizon observations, rather than silently jumping to the end of each prediction. Signals use the latest completed analysis candle; entry and target prices come from a separate one-minute Binance execution timeline at `executionAt` and exactly `executionAt + horizon`. Historical research is available from the **Strategy profiles** page or `POST /api/reports/strategy-profiles/research`. Scheduled rolling research is opt-in because Binance backfills are network- and rate-limit-intensive.
+
+Open Telegram trade simulations consume ordered Binance aggregate-trade events. The persisted `lastCheckedAt` cursor is replayed through the REST aggregate-trade history after startup, WebSocket reconnects, or detected aggregate-ID gaps, so target/stop results use the first boundary touched rather than the first later ticker snapshot.

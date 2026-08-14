@@ -24,7 +24,7 @@ class ReportServiceTest {
         AnalysisRun run=new AnalysisRun("run",Duration.ZERO);ReflectionTestUtils.setField(run,"id",1L);
         Instant at=Instant.parse("2026-01-01T00:00:00Z");
         Prediction a=graded(run,coin,"A",at),b=graded(run,coin,"B",at),c=graded(run,coin,"C",at);
-        when(predictions.findMoneyReportRows(eq("BTC"),eq(3600L),anyCollection())).thenReturn(List.of(row(a),row(b),row(c)));
+        when(predictions.findMoneyReportRows(eq("BTC"),eq(3600L),anyCollection(),eq(3))).thenReturn(List.of(row(a),row(b),row(c)));
         when(market.priceRange(eq("BTCUSDT"),eq(at),eq(at.plus(Duration.ofHours(1))))).thenReturn(new BinanceMarketDataClient.PriceRange(new BigDecimal("94"),new BigDecimal("104")));
 
         var report=new ReportService(predictions,runs,market).moneyReport(new ReportService.MoneyRequest("BTC",3600,List.of("A","B","C"),100,20,0,0,0,0));
@@ -38,7 +38,7 @@ class ReportServiceTest {
     @Test void profitableTradeAndTargetHitAreReportedSeparately(){
         var predictions=mock(PredictionRepository.class);var runs=mock(AnalysisRunRepository.class);var market=mock(BinanceMarketDataClient.class);
         Coin coin=new Coin("BTC","BTCUSDT");ReflectionTestUtils.setField(coin,"id",1L);AnalysisRun run=new AnalysisRun("run",Duration.ZERO);ReflectionTestUtils.setField(run,"id",1L);Instant at=Instant.parse("2026-01-01T00:00:00Z");
-        List<Prediction> rows=List.of(gradedAt(run,coin,"A",at,"100.20"),gradedAt(run,coin,"B",at,"100.20"),gradedAt(run,coin,"C",at,"100.20"));when(predictions.findMoneyReportRows(eq("BTC"),eq(3600L),anyCollection())).thenReturn(rows.stream().map(this::row).toList());when(market.priceRange(anyString(),any(),any())).thenReturn(new BinanceMarketDataClient.PriceRange(new BigDecimal("99.5"),new BigDecimal("100.2")));
+        List<Prediction> rows=List.of(gradedAt(run,coin,"A",at,"100.20"),gradedAt(run,coin,"B",at,"100.20"),gradedAt(run,coin,"C",at,"100.20"));when(predictions.findMoneyReportRows(eq("BTC"),eq(3600L),anyCollection(),eq(3))).thenReturn(rows.stream().map(this::row).toList());when(market.priceRange(anyString(),any(),any())).thenReturn(new BinanceMarketDataClient.PriceRange(new BigDecimal("99.5"),new BigDecimal("100.2")));
 
         var report=new ReportService(predictions,runs,market).moneyReport(new ReportService.MoneyRequest("BTC",3600,List.of("A","B","C"),100,1,0,0,0,0));
 
@@ -51,7 +51,7 @@ class ReportServiceTest {
     }
 
     @Test void belowRandomOrStatisticallyWeakMethodsReceiveNoConsensusWeight(){
-        var predictions=mock(PredictionRepository.class);var runs=mock(AnalysisRunRepository.class);var market=mock(BinanceMarketDataClient.class);Coin coin=new Coin("BTC","BTCUSDT");ReflectionTestUtils.setField(coin,"id",1L);AnalysisRun run=new AnalysisRun("run",Duration.ZERO);ReflectionTestUtils.setField(run,"id",1L);List<Prediction> rows=new ArrayList<>();Instant at=Instant.parse("2026-01-01T00:00:00Z");for(int i=0;i<10;i++)rows.add(gradedAt(run,coin,"A",at.plusSeconds(i),i<4?"101":"99"));var reportRows=rows.stream().map(this::row).toList();when(predictions.findGradedReportRows(3600)).thenReturn(reportRows);when(runs.findTopByOrderByCreatedAtDesc()).thenReturn(Optional.of(run));when(predictions.findLiveReportRows(1,3600)).thenReturn(reportRows);
+        var predictions=mock(PredictionRepository.class);var runs=mock(AnalysisRunRepository.class);var market=mock(BinanceMarketDataClient.class);Coin coin=new Coin("BTC","BTCUSDT");ReflectionTestUtils.setField(coin,"id",1L);AnalysisRun run=new AnalysisRun("run",Duration.ZERO);ReflectionTestUtils.setField(run,"id",1L);List<Prediction> rows=new ArrayList<>();Instant at=Instant.parse("2026-01-01T00:00:00Z");for(int i=0;i<10;i++)rows.add(gradedAt(run,coin,"A",at.plusSeconds(i),i<4?"101":"99"));var reportRows=rows.stream().map(this::row).toList();when(predictions.findGradedReportRows(3600,3)).thenReturn(reportRows);when(runs.findTopByOrderByCreatedAtDesc()).thenReturn(Optional.of(run));when(predictions.findLiveReportRows(1,3600,3)).thenReturn(reportRows);
 
         var report=new ReportService(predictions,runs,market).superReport(3,3600);
 
