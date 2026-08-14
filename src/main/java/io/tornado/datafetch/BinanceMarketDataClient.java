@@ -19,10 +19,11 @@ public class BinanceMarketDataClient {
     private final RestClient rest; private final TornadoProperties props;private final Clock clock;
     @Autowired public BinanceMarketDataClient(RestClient.Builder builder,TornadoProperties props){this(builder,props,Clock.systemUTC());}
     BinanceMarketDataClient(RestClient.Builder builder,TornadoProperties props,Clock clock){this.props=props;this.clock=clock;rest=builder.baseUrl(props.binance().restBaseUrl()).build();}
-    public BarSeries candles(String pair){
-        JsonNode rows=getWithRetry("/api/v3/klines?symbol={pair}&interval={interval}&limit={limit}",pair,props.binance().candleInterval(),props.binance().candleLimit());
+    public BarSeries candles(String pair){return candles(pair,props.binance().candleInterval());}
+    public BarSeries candles(String pair,String interval){
+        JsonNode rows=getWithRetry("/api/v3/klines?symbol={pair}&interval={interval}&limit={limit}",pair,interval,props.binance().candleLimit());
         BarSeries series=new BaseBarSeriesBuilder().withName(pair).build();
-        Duration period=intervalDuration(props.binance().candleInterval());
+        Duration period=intervalDuration(interval);
         long now=clock.millis();
         for(JsonNode r:rows){long closeTime=r.get(6).asLong();if(closeTime>now)continue;series.barBuilder().timePeriod(period).endTime(Instant.ofEpochMilli(closeTime)).openPrice(r.get(1).asText()).highPrice(r.get(2).asText()).lowPrice(r.get(3).asText()).closePrice(r.get(4).asText()).volume(r.get(5).asText()).add();}
         if(series.isEmpty())throw new IllegalStateException("Binance returned no completed candles for "+pair);
@@ -30,6 +31,7 @@ public class BinanceMarketDataClient {
     }
     public BigDecimal price(String pair){return new BigDecimal(getWithRetry("/api/v3/ticker/price?symbol={pair}",pair).get("price").asText());}
     public String candleInterval(){return props.binance().candleInterval();}
+    public BarSeries historicalCandles(String pair,String interval,Instant from,Instant to){if(!to.isAfter(from))throw new IllegalArgumentException("Historical candle end must follow start");Duration period=intervalDuration(interval);long cursor=from.toEpochMilli(),end=Math.min(to.toEpochMilli(),clock.millis()),step=period.toMillis();BarSeries series=new BaseBarSeriesBuilder().withName(pair+"-"+interval+"-research").build();while(cursor<end){JsonNode rows=getWithRetry("/api/v3/klines?symbol={pair}&interval={interval}&startTime={start}&endTime={end}&limit=1000",pair,interval,cursor,end);if(rows==null||!rows.isArray()||rows.isEmpty())break;long next=cursor;for(JsonNode r:rows){long openTime=r.get(0).asLong(),closeTime=r.get(6).asLong();next=Math.max(next,openTime+step);if(closeTime>end||closeTime>clock.millis())continue;series.barBuilder().timePeriod(period).endTime(Instant.ofEpochMilli(closeTime)).openPrice(r.get(1).asText()).highPrice(r.get(2).asText()).lowPrice(r.get(3).asText()).closePrice(r.get(4).asText()).volume(r.get(5).asText()).add();}if(next<=cursor||rows.size()<1000)break;cursor=next;}if(series.isEmpty())throw new IllegalStateException("Binance returned no completed historical candles for "+pair+" "+interval);return series;}
     public TimedPrice priceAt(String pair,Instant target){
         long targetMillis=target.toEpochMilli(),window=MAX_TARGET_PRICE_DISTANCE.toMillis();
         JsonNode beforeRows=getWithRetry("/api/v3/aggTrades?symbol={pair}&endTime={end}&limit=1",pair,targetMillis);

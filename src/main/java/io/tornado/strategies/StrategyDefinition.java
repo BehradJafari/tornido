@@ -13,6 +13,7 @@ import org.ta4j.core.indicators.bollinger.*;
 import org.ta4j.core.indicators.ichimoku.*;
 import org.ta4j.core.indicators.volume.*;
 import org.ta4j.core.num.Num;
+import java.util.*;
 import java.util.function.Function;
 
 public enum StrategyDefinition {
@@ -39,11 +40,35 @@ public enum StrategyDefinition {
     public String label(){return label;}
     public String code(){return name();}
     public int version(){return version;}
-    public StrategySignal evaluate(BarSeries series){Rules r=factory.apply(series);int i=series.getEndIndex();Direction d=r.up().isSatisfied(i)?Direction.UP:r.down().isSatisfied(i)?Direction.DOWN:r.fallback()==Fallback.NEUTRAL?Direction.NEUTRAL:r.left().getValue(i).isGreaterThanOrEqual(r.right().getValue(i))?Direction.UP:Direction.DOWN;return new StrategySignal(label,d);}
+    public StrategySignal evaluate(BarSeries series){return signal(series,factory.apply(series),series.getEndIndex());}
+    public StrategySignal evaluate(BarSeries series,String parameterKey){return evaluateAt(series,parameterKey,series.getEndIndex());}
+    public StrategySignal evaluateAt(BarSeries series,String parameterKey,int index){if(parameterKey==null||parameterKey.isBlank()||parameterKey.equals(defaultParameterKey()))return signal(series,factory.apply(series),index);Rules rules=switch(this){
+        case SMA_20->movingAverage(series,parameterKey,"SMA");case EMA_20->movingAverage(series,parameterKey,"EMA");case WMA_20->movingAverage(series,parameterKey,"WMA");
+        case RSI_14->thresholds(new RSIIndicator(new ClosePriceIndicator(series),period(parameterKey)),30,70);
+        case MACD_12_26_9->{int[]p=tuple(parameterKey,3);var m=new MACDIndicator(new ClosePriceIndicator(series),p[0],p[1]);var sig=new EMAIndicator(m,p[2]);yield pair(new CrossedUpIndicatorRule(m,sig),new CrossedDownIndicatorRule(m,sig),m,sig);}
+        case STOCHASTIC_14->thresholds(new StochasticOscillatorKIndicator(series,period(parameterKey)),20,80);
+        case CCI_20->thresholds(new CCIIndicator(series,period(parameterKey)),-100,100);
+        case ADX_14->{int p=period(parameterKey);var plus=new PlusDIIndicator(series,p);var minus=new MinusDIIndicator(series,p);var adx=new ADXIndicator(series,p);var strength=new ConstantIndicator<>(series,series.numFactory().numOf(25));yield neutral(new AndRule(new OverIndicatorRule(adx,strength),new OverIndicatorRule(plus,minus)),new AndRule(new OverIndicatorRule(adx,strength),new OverIndicatorRule(minus,plus)));}
+        case WILLIAMS_R_14->thresholds(new WilliamsRIndicator(series,period(parameterKey)),-80,-20);
+        case BOLLINGER_20->{int[]p=tuple(parameterKey,2);var c=new ClosePriceIndicator(series);var mid=new BollingerBandsMiddleIndicator(new SMAIndicator(c,p[0]));var dev=new StandardDeviationIndicator(c,p[0]);var up=new BollingerBandsUpperIndicator(mid,dev,series.numFactory().numOf(p[1]));var low=new BollingerBandsLowerIndicator(mid,dev,series.numFactory().numOf(p[1]));yield pair(new UnderIndicatorRule(c,low),new OverIndicatorRule(c,up),c,mid);}
+        case ROC_12->zeroMomentum(new ROCIndicator(new ClosePriceIndicator(series),period(parameterKey)));
+        case CHAIKIN_MONEY_FLOW->zeroMomentum(new ChaikinMoneyFlowIndicator(series,period(parameterKey)));
+        case OBV->{var i=new OnBalanceVolumeIndicator(series);var avg=new SMAIndicator(i,period(parameterKey));yield pair(new CrossedUpIndicatorRule(i,avg),new CrossedDownIndicatorRule(i,avg),i,avg);}
+        case AROON_25->{int p=period(parameterKey);var a=new AroonUpIndicator(series,p);var b=new AroonDownIndicator(series,p);yield pair(new CrossedUpIndicatorRule(a,b),new CrossedDownIndicatorRule(a,b),a,b);}
+        case ICHIMOKU,PARABOLIC_SAR->factory.apply(series);
+    };return signal(series,rules,index);}
+    public String defaultParameterKey(){return switch(this){case SMA_20,EMA_20,WMA_20,CCI_20,CHAIKIN_MONEY_FLOW->"20";case BOLLINGER_20->"20,2";case RSI_14,STOCHASTIC_14,ADX_14,WILLIAMS_R_14->"14";case MACD_12_26_9->"12,26,9";case ROC_12->"12";case OBV->"10";case ICHIMOKU,PARABOLIC_SAR->"default";case AROON_25->"25";};}
+    public List<String> parameterKeys(){return switch(this){case SMA_20,EMA_20,WMA_20->List.of("10","20","50");case RSI_14->List.of("7","14","21");case MACD_12_26_9->List.of("8,21,5","12,26,9");case STOCHASTIC_14->List.of("7","14","21");case CCI_20->List.of("14","20","30");case ADX_14->List.of("10","14","20");case WILLIAMS_R_14->List.of("7","14","21");case BOLLINGER_20->List.of("14,2","20,2");case ROC_12->List.of("6","12","24");case CHAIKIN_MONEY_FLOW->List.of("10","20","30");case OBV->List.of("5","10","20");case ICHIMOKU,PARABOLIC_SAR->List.of("default");case AROON_25->List.of("14","25","50");};}
+    public Family family(){return switch(this){case RSI_14,STOCHASTIC_14,CCI_20,WILLIAMS_R_14,BOLLINGER_20->Family.MEAN_REVERSION;default->Family.TREND_MOMENTUM;};}
+    private StrategySignal signal(BarSeries series,Rules r,int i){if(i<series.getBeginIndex()||i>series.getEndIndex())throw new IllegalArgumentException("Signal index is outside the available candle series");Direction d=r.up().isSatisfied(i)?Direction.UP:r.down().isSatisfied(i)?Direction.DOWN:r.fallback()==Fallback.NEUTRAL?Direction.NEUTRAL:r.left().getValue(i).isGreaterThanOrEqual(r.right().getValue(i))?Direction.UP:Direction.DOWN;return new StrategySignal(label,d);}
+    private Rules movingAverage(BarSeries series,String key,String type){int p=period(key);var c=new ClosePriceIndicator(series);org.ta4j.core.Indicator<Num>avg=switch(type){case"SMA"->new SMAIndicator(c,p);case"EMA"->new EMAIndicator(c,p);default->new WMAIndicator(c,p);};return pair(new CrossedUpIndicatorRule(c,avg),new CrossedDownIndicatorRule(c,avg),c,avg);}
+    private int period(String value){return Integer.parseInt(value);}
+    private int[]tuple(String value,int expected){int[]r=Arrays.stream(value.split(",")).mapToInt(Integer::parseInt).toArray();if(r.length!=expected)throw new IllegalArgumentException("Invalid parameters for "+code()+": "+value);return r;}
     private static Rules thresholds(org.ta4j.core.Indicator<Num> i,Number low,Number high){var l=new ConstantIndicator<>(i.getBarSeries(),i.getBarSeries().numFactory().numOf(low));var h=new ConstantIndicator<>(i.getBarSeries(),i.getBarSeries().numFactory().numOf(high));return neutral(new UnderIndicatorRule(i,l),new OverIndicatorRule(i,h));}
     private static Rules zeroMomentum(org.ta4j.core.Indicator<Num> i){var zero=new ConstantIndicator<>(i.getBarSeries(),i.getBarSeries().numFactory().numOf(0));return neutral(new OverIndicatorRule(i,zero),new UnderIndicatorRule(i,zero));}
     private static Rules neutral(org.ta4j.core.Rule up,org.ta4j.core.Rule down){return new Rules(up,down,null,null,Fallback.NEUTRAL);}
     private static Rules pair(org.ta4j.core.Rule up,org.ta4j.core.Rule down,org.ta4j.core.Indicator<Num> left,org.ta4j.core.Indicator<Num> right){return new Rules(up,down,left,right,Fallback.RELATIVE);}
     private enum Fallback { RELATIVE, NEUTRAL }
+    public enum Family { TREND_MOMENTUM, MEAN_REVERSION }
     private record Rules(org.ta4j.core.Rule up,org.ta4j.core.Rule down,org.ta4j.core.Indicator<Num> left,org.ta4j.core.Indicator<Num> right,Fallback fallback){}
 }

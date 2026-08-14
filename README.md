@@ -126,3 +126,50 @@ cd frontend && npm run build
 ```
 
 This is research software, not financial advice. Signal accuracy does not account for fees, spread, slippage, or executable order timing.
+# Best mix signals and Telegram
+
+Tornido persists the top three statistically ranked strategy mixes for every active coin, supported horizon, and mix size from 2 through 8. A mix must have at least `minimumMixSimulationTrades` decisive historical samples. Ranking uses the 95% Wilson lower bound of target-hit accuracy, then sample count as a tie-breaker.
+
+The Settings page controls the minimum history (default `30`), simulated stop loss (default `0.50%`), signal delivery, and the daily Tehran report. These are simulations only; Tornido never places exchange orders. The research target remains `0.30%`.
+
+Telegram credentials are environment-only and are never stored in the database:
+
+```text
+TELEGRAM_BOT_TOKEN=123456789:replace-with-botfather-token
+TELEGRAM_CHAT_ID=@your_channel_username
+```
+
+The bot must be able to post and edit messages in the configured destination. If either variable is missing, Telegram features are skipped without affecting analysis, grading, or reports. The daily report runs at `00:00 Asia/Tehran` and reports the previous Tehran calendar day.
+
+## Horizon-aware strategy profiles (signal generation v3)
+
+New analyses use immutable `StrategyHorizonProfile` records. Each strategy and prediction horizon independently resolves an analysis candle timeframe and a constrained parameter key. A coin-specific profile may override the global profile only after meeting the stricter coin sample requirement and materially beating the global score. Predictions retain the selected profile ID, strategy/version, timeframe, signal candle close/price, execution time/price, and horizon. Historical generation-2 predictions and their existing reports remain unchanged and are never mixed with generation 3.
+
+Until historical research validates a challenger, Tornido uses deterministic fallbacks: `1m→1m`, `15m→5m`, `30m→15m`, `1h→15m`, `4h→1h`, `12h→4h`, and `24h→4h`. These are explicitly fallback profiles, not claims of optimality. Candidate timeframe spaces are:
+
+- 1m horizon: `1m, 3m`
+- 15m: `1m, 3m, 5m, 15m`
+- 30m: `3m, 5m, 15m, 30m`
+- 1h: `5m, 15m, 30m, 1h`
+- 4h: `15m, 30m, 1h, 2h, 4h`
+- 12h: `30m, 1h, 2h, 4h, 6h`
+- 24h: `1h, 2h, 4h, 6h, 8h, 12h, 1d`
+
+The constrained parameter grid covers moving-average periods `10/20/50`, RSI `7/14/21`, MACD `8/21/5` and `12/26/9`, Stochastic `7/14/21`, CCI `14/20/30`, ADX `10/14/20`, Williams %R `7/14/21`, Bollinger `14/2` and `20/2`, ROC `6/12/24`, CMF `10/20/30`, OBV smoothing `5/10/20`, Aroon `14/25/50`, and stable defaults for Ichimoku and Parabolic SAR.
+
+Research is chronological: the first 40% of observations is training evidence, the next 40% is divided into four walk-forward validation windows, and the final 20% is an untouched test block. Candidate ranking never reads final-test outcomes. The displayed accuracy metrics are final-test results; the selection score is calculated only from validation data:
+
+```text
+score = 100 × (
+  0.35 × directional Wilson lower bound
+  + 0.25 × target-hit Wilson lower bound
+  + 0.15 × profitable-trade Wilson lower bound
+  + 0.15 × normalized average net return
+  + 0.10 × positive-window consistency
+  - 0.10 × normalized maximum drawdown penalty
+)
+```
+
+Wilson bounds use 95% confidence (`z=1.96`). Net returns deduct the configured round-trip research cost. Defaults require 100 global validation samples, 250 coin-specific samples, and a two-point validation-score improvement before replacement. Profile history is retained instead of overwritten. Final-test outcomes are displayed as evidence only and never participate in candidate ranking or profile replacement.
+
+Normal snapshots do not optimize. They load active profiles once, fetch each `pair + timeframe` candle series once per run, evaluate all dependent strategies from that cache, and use completed candles only. Historical research is available from the **Strategy profiles** page or `POST /api/reports/strategy-profiles/research`. Scheduled rolling research is opt-in because Binance backfills are network- and rate-limit-intensive.

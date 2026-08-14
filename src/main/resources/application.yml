@@ -7,6 +7,12 @@ spring:
   jpa:
     hibernate.ddl-auto: validate
     open-in-view: false
+    properties:
+      hibernate:
+        default_batch_fetch_size: 100
+        jdbc.batch_size: 100
+        order_updates: true
+        order_inserts: true
   flyway.enabled: true
   jackson.serialization.write-dates-as-timestamps: false
 server.port: ${PORT:8080}
@@ -14,6 +20,9 @@ server.address: ${SERVER_ADDRESS:0.0.0.0}
 server.forward-headers-strategy: framework
 
 tornado:
+  telegram:
+    bot-token: ${TELEGRAM_BOT_TOKEN:}
+    chat-id: ${TELEGRAM_CHAT_ID:}
   auth:
     username: ${TORNADO_ADMIN_USERNAME:tornado-admin}
     password: ${TORNADO_ADMIN_PASSWORD:local-development-password}

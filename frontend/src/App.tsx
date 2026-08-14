@@ -67,6 +67,8 @@ type View =
   | "methods"
   | "coins"
   | "mixes"
+  | "signals"
+  | "profiles"
   | "money"
   | "history"
   | "settings";
@@ -184,6 +186,7 @@ function Dashboard({currentUser,logout}:{currentUser:{username:string;role:"ADMI
   };
   useEffect(() => {
     requestListeners.add(setRequestCount);
+    loadCoins();
     api<{ id: string; name: string }[]>("/api/methods")
       .then(setAllMethods)
       .catch(failed);
@@ -251,6 +254,8 @@ function Dashboard({currentUser,logout}:{currentUser:{username:string;role:"ADMI
               ["methods", BarChart3, "Method reports"],
               ["coins", Coins, "Coin reports"],
               ["mixes", LineChart, "Method mixes"],
+              ["signals", Activity, "Best mix signals"],
+              ["profiles", Clock3, "Strategy profiles"],
               ["money", DollarSign, "Money report"],
               ["history", Clock3, "Prediction log"],
               ["settings", Settings, "Settings"],
@@ -268,7 +273,7 @@ function Dashboard({currentUser,logout}:{currentUser:{username:string;role:"ADMI
         </nav>
         <div className="status">
           <i />
-          BINANCE CONNECTED<small>{coins.length} MARKETS LIVE</small>
+          BINANCE CONNECTED<small>{coins.length} ACTIVE MARKETS</small>
         </div>
       </aside>
       <main>
@@ -287,6 +292,8 @@ function Dashboard({currentUser,logout}:{currentUser:{username:string;role:"ADMI
                     methods: "Method intelligence",
                     coins: "Coin intelligence",
                     mixes: "Best method combinations",
+                    signals: "Best mix signals",
+                    profiles: "Validated strategy profiles",
                     money: "Futures money simulator",
                     history: "Prediction log",
                     settings: "Workspace settings",
@@ -328,6 +335,8 @@ function Dashboard({currentUser,logout}:{currentUser:{username:string;role:"ADMI
             {view === "methods" && <Methods rows={leaders} open={setMethod} />}{" "}
             {view === "coins" && <CoinReports coins={coins} />}{" "}
             {view === "mixes" && <MixReports />}{" "}
+            {view === "signals" && <BestMixSignals coins={coins} admin={currentUser.role === "ADMIN"} />}{" "}
+            {view === "profiles" && <StrategyProfiles coins={coins} methods={allMethods} admin={currentUser.role === "ADMIN"} />}{" "}
             {view === "money" && <MoneyReport coins={coins} />}{" "}
             {view === "history" && <History rows={preds} prices={prices} />}{" "}
             {view === "settings" && (
@@ -351,7 +360,7 @@ function Dashboard({currentUser,logout}:{currentUser:{username:string;role:"ADMI
         <button className={view === "analyses" ? "active" : ""} onClick={() => navigate("analyses")}><Activity /><span>Analyses</span></button>
         <button className={view === "methods" || method ? "active" : ""} onClick={() => setMethodMenu(true)}><BarChart3 /><span>Methods</span></button>
         <button className={view === "coins" ? "active" : ""} onClick={() => navigate("coins")}><Coins /><span>Coins</span></button>
-        <button className={["mixes","money","history","settings"].includes(view) ? "active" : ""} onClick={() => setMoreMenu(true)}><Settings /><span>More</span></button>
+        <button className={["mixes","signals","profiles","money","history","settings"].includes(view) ? "active" : ""} onClick={() => setMoreMenu(true)}><Settings /><span>More</span></button>
       </nav>
       {methodMenu && (
         <div className="mobile-sheet-backdrop" onClick={() => setMethodMenu(false)}>
@@ -369,7 +378,7 @@ function Dashboard({currentUser,logout}:{currentUser:{username:string;role:"ADMI
           <section className="mobile-sheet compact" role="dialog" aria-modal="true" aria-label="More navigation" onClick={(e) => e.stopPropagation()}>
             <div className="mobile-sheet-head"><div><small>NAVIGATION</small><h2>More tools</h2></div><button aria-label="Close" onClick={() => setMoreMenu(false)}><X /></button></div>
             <div className="mobile-more-grid">
-              {([ ["mixes",LineChart,"Method mixes"], ["money",DollarSign,"Money report"], ["history",Clock3,"Prediction log"], ["settings",Settings,"Settings"] ] as const).map(([id,I,label]) => <button key={id} className={view === id ? "active" : ""} onClick={() => navigate(id)}><I /><span>{label}</span></button>)}
+              {([ ["mixes",LineChart,"Method mixes"], ["signals",Activity,"Best signals"], ["profiles",Clock3,"Profiles"], ["money",DollarSign,"Money report"], ["history",Clock3,"Prediction log"], ["settings",Settings,"Settings"] ] as const).map(([id,I,label]) => <button key={id} className={view === id ? "active" : ""} onClick={() => navigate(id)}><I /><span>{label}</span></button>)}
             </div>
           </section>
         </div>
@@ -1771,6 +1780,19 @@ function Metric({
     </article>
   );
 }
+function BestMixSignals({coins,admin}:{coins:Coin[];admin:boolean}){
+  type Mix={id:number;coin:string;horizonSeconds:number;mixSize:number;rank:number;methods:string[];samples:number;targetHitRate:number;directionalAccuracy:number;wilsonScore:number};type Sim={id:number;coin:string;pair:string;horizonSeconds:number;mixRank:number;methods:string[];direction:"UP"|"DOWN";agreementCount:number;totalMethods:number;openedAt:string;entryPrice:number;targetPrice:number;stopLossPrice:number;status:string};
+  const [coin,setCoin]=useState("BTC"),[horizon,setHorizon]=useState(900),[mixes,setMixes]=useState<Mix[]>([]),[open,setOpen]=useState<Sim[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState("");
+  useEffect(()=>{if(coins.length&&!coins.some(c=>c.symbol===coin))setCoin(coins[0].symbol)},[coins]);const load=()=>{setError("");Promise.all([api<Mix[]>(`/api/reports/best-mixes?coin=${coin}&horizon=${horizon}`),api<Sim[]>("/api/mix-simulations?status=OPEN")]).then(([m,s])=>{setMixes(m);setOpen(s.filter(x=>x.coin===coin&&x.horizonSeconds===horizon))}).catch(e=>setError(String(e)))};useEffect(load,[coin,horizon]);
+  return <div className="best-signal-view"><section className="panel signal-toolbar"><label>COIN<select value={coin} onChange={e=>setCoin(e.target.value)}>{coins.map(c=><option key={c.id}>{c.symbol}</option>)}</select></label><label>TIME SLICE<select value={horizon} onChange={e=>setHorizon(Number(e.target.value))}>{[60,900,1800,3600,14400,43200,86400].map(x=><option key={x} value={x}>{horizonLabel(x)}</option>)}</select></label>{admin&&<button disabled={busy} onClick={async()=>{setBusy(true);try{await api("/api/reports/best-mixes/rebuild",{method:"POST"});load()}finally{setBusy(false)}}}>{busy?"Rebuilding…":"Rebuild rankings"}</button>}</section>{error&&<div className="form-error">{error}</div>}<div className="best-mix-sizes">{[2,3,4,5,6,7,8].map(size=><section className="panel best-mix-size" key={size}><h2>{size} methods</h2>{mixes.filter(m=>m.mixSize===size).map(m=><article key={m.id}><b>#{m.rank} {m.methods.join(" + ")}</b><div><span>🔢 {m.samples} samples</span><span>🎯 {m.targetHitRate.toFixed(1)}%</span><span>📈 {m.directionalAccuracy.toFixed(1)}%</span><span>📐 Wilson {m.wilsonScore.toFixed(1)}%</span></div></article>)}{!mixes.some(m=>m.mixSize===size)&&<Empty text="Not enough eligible history" />}</section>)}</div><section className="panel open-simulations"><h2>Open simulations</h2>{open.map(s=><article key={s.id}><strong className={s.direction==="UP"?"up":"down"}>{s.direction==="UP"?"LONG":"SHORT"}</strong><span><b>#{s.id} · Mix #{s.mixRank}</b><small>{s.methods.join(" + ")}</small></span><span>🗳 {s.agreementCount}/{s.totalMethods}</span><span>Entry {money(s.entryPrice)}<small>🎯 {money(s.targetPrice)} · 🛑 {money(s.stopLossPrice)}</small></span></article>)}{!open.length&&<Empty text="No open simulations for this slice" />}</section></div>
+}
+function StrategyProfiles({coins,methods,admin}:{coins:Coin[];methods:{id:string;name:string}[];admin:boolean}){
+  type P={id:number;strategyCode:string;strategyVersion:number;predictionHorizonSeconds:number;analysisTimeframe:string;parameterKey:string;profileVersion:number;scope:"GLOBAL"|"COIN_SPECIFIC";coin?:string;source:string;trainingSamples:number;validationSamples:number;testSamples:number;targetHitRate:number;directionalAccuracy:number;wilsonDirectionalScore:number;walkForwardPositiveWindows:number;walkForwardWindows:number;walkForwardConsistency:number;selectionScore:number;selectedAt:string;reason:string};
+  const [rows,setRows]=useState<P[]>([]),[horizon,setHorizon]=useState(3600),[coin,setCoin]=useState(""),[strategy,setStrategy]=useState("EMA_20"),[scope,setScope]=useState<"GLOBAL"|"COIN_SPECIFIC">("GLOBAL"),[busy,setBusy]=useState(false),[message,setMessage]=useState("");
+  const load=()=>api<P[]>(`/api/reports/strategy-profiles?horizon=${horizon}${coin?`&coin=${coin}`:""}`).then(setRows).catch(e=>setMessage(String(e)));useEffect(()=>{load()},[horizon,coin]);
+  const runResearch=async()=>{setBusy(true);setMessage("Historical research can take several minutes because Binance data is paginated.");try{const result=await api<any>("/api/reports/strategy-profiles/research",{method:"POST",body:JSON.stringify({scope,coin:scope==="COIN_SPECIFIC"?coin:null,strategyCode:strategy,horizon})});setMessage(result.selection?.reason||"Research completed");load()}catch(e){setMessage(String(e))}finally{setBusy(false)}};
+  return <div className="profile-view"><section className="panel profile-toolbar"><label>COIN / SCOPE<select value={coin} onChange={e=>setCoin(e.target.value)}><option value="">Global profiles</option>{coins.map(c=><option key={c.id} value={c.symbol}>{c.symbol}/USDT</option>)}</select></label><label>HORIZON<select value={horizon} onChange={e=>setHorizon(Number(e.target.value))}>{[60,900,1800,3600,14400,43200,86400].map(x=><option key={x} value={x}>{horizonLabel(x)}</option>)}</select></label></section><p className="report-note">Signal generation v3 resolves one immutable profile per strategy and horizon. Final test results are displayed, but candidate ranking uses only earlier chronological validation windows.</p>{admin&&<section className="panel profile-research"><h2>Walk-forward research</h2><div><label>SCOPE<select value={scope} onChange={e=>setScope(e.target.value as "GLOBAL"|"COIN_SPECIFIC")}><option value="GLOBAL">Global</option><option value="COIN_SPECIFIC">Coin override</option></select></label><label>STRATEGY<select value={strategy} onChange={e=>setStrategy(e.target.value)}>{methods.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></label><button disabled={busy||scope==="COIN_SPECIFIC"&&!coin} onClick={runResearch}>{busy?"Researching…":"Evaluate candidates"}</button></div>{message&&<div className="notice">{message}</div>}</section>}<section className="panel profile-table"><div className="profile-head"><b>Strategy</b><b>Selected TF</b><b>Parameters</b><b>Samples</b><b>Directional</b><b>Target</b><b>Wilson</b><b>Walk-forward</b></div>{rows.map(p=><article key={p.id}><span><b>{methods.find(m=>m.id===p.strategyCode)?.name||p.strategyCode}</b><small>{p.coin||"GLOBAL"} · v{p.profileVersion} · {p.source}</small></span><strong>{p.analysisTimeframe}</strong><span>{p.parameterKey}</span><span>{p.testSamples}<small>{p.validationSamples} validation</small></span><span>{p.testSamples?p.directionalAccuracy.toFixed(1)+"%":"—"}</span><span>{p.testSamples?p.targetHitRate.toFixed(1)+"%":"—"}</span><span>{p.testSamples?p.wilsonDirectionalScore.toFixed(1)+"%":"—"}</span><span>{p.walkForwardWindows?`${p.walkForwardPositiveWindows}/${p.walkForwardWindows}`:"Fallback"}<small>{p.walkForwardConsistency?p.walkForwardConsistency.toFixed(0)+"% positive":"No validated evidence yet"}</small></span></article>)}{!rows.length&&<Empty text="No active profiles found for this slice"/>}</section></div>
+}
 function SettingsView({
   coins,
   reload,
@@ -1840,10 +1862,18 @@ function SettingsView({
           </div>
         ))}
       </section>
+      {currentUser.role === "ADMIN" && <MixSignalSettings />}
+      {currentUser.role === "ADMIN" && <ProfileSelectionSettings />}
+      {currentUser.role === "ADMIN" && <TelegramSettings />}
       {currentUser.role === "ADMIN" && <UserSettings currentUsername={currentUser.username} />}
     </>
   );
 }
+function TelegramSettings(){
+  type Configuration={enabled:boolean;environmentConfigured:boolean;chatId:string|null};const [configuration,setConfiguration]=useState<Configuration|null>(null),[enabled,setEnabled]=useState(false),[message,setMessage]=useState(""),[error,setError]=useState("");useEffect(()=>{api<Configuration>("/api/settings/notifications").then(v=>{setConfiguration(v);setEnabled(v.enabled)}).catch(e=>setError(String(e)))},[]);const save=async(e:React.FormEvent)=>{e.preventDefault();try{const v=await api<Configuration>("/api/settings/notifications",{method:"PUT",body:JSON.stringify({enabled})});setConfiguration(v);setMessage("Telegram delivery preference saved");setError("")}catch(e){setError(String(e))}};return <section className="panel settings telegram-settings"><h2>Telegram notifications</h2><p className="settings-note">Secrets are read from TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID on the server and are never stored in the database.</p><div className="telegram-env-status"><b>{configuration?.environmentConfigured?"Configured":"Not configured"}</b><small>{configuration?.chatId||"Add production environment variables to enable delivery"}</small></div><form onSubmit={save}><label className="telegram-toggle"><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)} disabled={!configuration?.environmentConfigured}/><span>Enable signal delivery</span></label><button>Save settings</button></form>{message&&<div className="notice telegram-message">{message}</div>}{error&&<div className="form-error">{error}</div>}</section>
+}
+function MixSignalSettings(){type S={minimumMixSimulationTrades:number;mixTradeStopLossPercent:number;telegramDailyReportEnabled:boolean};const [value,setValue]=useState<S>({minimumMixSimulationTrades:30,mixTradeStopLossPercent:.5,telegramDailyReportEnabled:true}),[message,setMessage]=useState(""),[error,setError]=useState("");useEffect(()=>{api<S>("/api/settings/mix-signals").then(setValue).catch(e=>setError(String(e)))},[]);const save=async(e:React.FormEvent)=>{e.preventDefault();try{setValue(await api<S>("/api/settings/mix-signals",{method:"PUT",body:JSON.stringify(value)}));setMessage("Mix signal settings saved");setError("")}catch(e){setError(String(e))}};return <section className="panel settings"><h2>Best mix simulations</h2><p className="settings-note">Controls persisted rankings and simulated stop-loss monitoring. No real exchange orders are placed.</p><form onSubmit={save}><label>MINIMUM HISTORICAL TRADES<NumberField value={value.minimumMixSimulationTrades} min={1} max={100000} step={1} onChange={x=>setValue({...value,minimumMixSimulationTrades:x})}/></label><label>STOP LOSS %<NumberField value={value.mixTradeStopLossPercent} min={.01} max={20} step={.05} onChange={x=>setValue({...value,mixTradeStopLossPercent:x})}/></label><label className="telegram-toggle"><input type="checkbox" checked={value.telegramDailyReportEnabled} onChange={e=>setValue({...value,telegramDailyReportEnabled:e.target.checked})}/><span>Daily Tehran report</span></label><button>Save settings</button></form>{message&&<div className="notice telegram-message">{message}</div>}{error&&<div className="form-error">{error}</div>}</section>}
+function ProfileSelectionSettings(){type S={minimumConfigurationSamples:number;coinProfileMinimumSamples:number;profileReplacementMinimumImprovementPercent:number;profileResearchRoundTripCostPercent:number;profileRefreshIntervalHours:number;automaticProfileResearchEnabled:boolean};const [value,setValue]=useState<S>({minimumConfigurationSamples:100,coinProfileMinimumSamples:250,profileReplacementMinimumImprovementPercent:2,profileResearchRoundTripCostPercent:.1,profileRefreshIntervalHours:24,automaticProfileResearchEnabled:false}),[message,setMessage]=useState(""),[error,setError]=useState("");useEffect(()=>{api<S>("/api/settings/profile-selection").then(setValue).catch(e=>setError(String(e)))},[]);const save=async(e:React.FormEvent)=>{e.preventDefault();try{setValue(await api<S>("/api/settings/profile-selection",{method:"PUT",body:JSON.stringify(value)}));setMessage("Profile selection settings saved");setError("")}catch(e){setError(String(e))}};return <section className="panel settings profile-settings"><h2>Horizon-aware profile selection</h2><p className="settings-note">Controls chronological validation evidence and replacement stability. Research costs are deducted from every simulated observation.</p><form onSubmit={save}><label>GLOBAL MINIMUM SAMPLES<NumberField value={value.minimumConfigurationSamples} min={30} max={100000} step={10} onChange={x=>setValue({...value,minimumConfigurationSamples:x})}/></label><label>COIN OVERRIDE MINIMUM<NumberField value={value.coinProfileMinimumSamples} min={value.minimumConfigurationSamples} max={100000} step={10} onChange={x=>setValue({...value,coinProfileMinimumSamples:x})}/></label><label>MINIMUM SCORE IMPROVEMENT<NumberField value={value.profileReplacementMinimumImprovementPercent} min={0} max={50} step={.25} onChange={x=>setValue({...value,profileReplacementMinimumImprovementPercent:x})}/></label><label>ROUND-TRIP COST %<NumberField value={value.profileResearchRoundTripCostPercent} min={0} max={10} step={.01} onChange={x=>setValue({...value,profileResearchRoundTripCostPercent:x})}/></label><label>REFRESH POLICY HOURS<NumberField value={value.profileRefreshIntervalHours} min={1} max={8760} step={1} onChange={x=>setValue({...value,profileRefreshIntervalHours:x})}/></label><label className="telegram-toggle"><input type="checkbox" checked={value.automaticProfileResearchEnabled} onChange={e=>setValue({...value,automaticProfileResearchEnabled:e.target.checked})}/><span>Enable rolling scheduled research</span></label><button>Save settings</button></form>{message&&<div className="notice telegram-message">{message}</div>}{error&&<div className="form-error">{error}</div>}</section>}
 function Empty({ text }: { text: string }) {
   return <div className="empty">{text}</div>;
 }
