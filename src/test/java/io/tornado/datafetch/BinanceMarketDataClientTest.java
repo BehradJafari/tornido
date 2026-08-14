@@ -93,6 +93,14 @@ class BinanceMarketDataClientTest {
         server.verify();
     }
 
+    @Test void historicalTradePaginationHasNoMissingOrDuplicateBoundaryIds(){
+        RestClient.Builder builder=RestClient.builder();MockRestServiceServer server=MockRestServiceServer.bindTo(builder).build();Instant from=Instant.parse("2026-01-01T00:00:00Z"),to=from.plusSeconds(2);
+        StringBuilder first=new StringBuilder("[");for(int i=0;i<1000;i++){if(i>0)first.append(',');first.append("{\"a\":").append(i).append(",\"p\":\"100\",\"T\":").append(from.plusMillis(i).toEpochMilli()).append('}');}first.append(']');
+        server.expect(requestTo("https://binance.test/api/v3/aggTrades?symbol=BTCUSDT&startTime="+from.toEpochMilli()+"&endTime="+to.toEpochMilli()+"&limit=1000")).andRespond(withSuccess(first.toString(),MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://binance.test/api/v3/aggTrades?symbol=BTCUSDT&fromId=1000&limit=1000")).andRespond(withSuccess("[{\"a\":1000,\"p\":\"101\",\"T\":"+from.plusMillis(1000).toEpochMilli()+"},{\"a\":1001,\"p\":\"102\",\"T\":"+from.plusMillis(1001).toEpochMilli()+"}]",MediaType.APPLICATION_JSON));
+        var trades=client(builder).historicalTrades("BTCUSDT",from,to);assertThat(trades).hasSize(1002);assertThat(trades.getFirst().id()).isZero();assertThat(trades.getLast().id()).isEqualTo(1001);assertThat(trades).extracting(BinanceMarketDataClient.AggregateTrade::id).doesNotHaveDuplicates();server.verify();
+    }
+
     private BinanceMarketDataClient client(RestClient.Builder builder){
         return client(builder,Clock.systemUTC());
     }
