@@ -72,7 +72,7 @@ public class OpportunityAnalyticsService {
     public record Group(String label,long total,long successful,long failed,long unresolved,double successRate){}
     public record MixGroup(String pair,long horizon,int mixRank,String methods,int rankingTpLevel,long found,long successful,long failed,double liveFirstTouchSuccessRate,double historicalEndpointHitRate,double wilsonScore){}
     public record Bucket(String label,long found,long resolved,double successRate){}
-    public record MatrixCell(int tpLevel,int slLevel,String outcome,long successful,long failed,long ambiguous){public double successRate(){return successful+failed==0?0:successful*100.0/(successful+failed);}}
+    public record MatrixCell(int tpLevel,int slLevel,String outcome,long successful,long failed,long ambiguous){@com.fasterxml.jackson.annotation.JsonProperty("successRate") public double successRate(){return successful+failed==0?0:successful*100.0/(successful+failed);}}
     public record Dashboard(Summary summary,List<Group>timeSeries,List<Group>coins,List<Group>horizons,List<MixGroup>mixes,List<Bucket>winRateBuckets,List<MatrixCell>matrix){}
     public record Row(long id,String coin,String pair,String direction,long horizon,Instant detectedAt,BigDecimal entryPrice,int mixRank,int mixSize,String methods,double historicalEndpointHitRate,double wilsonScore,int rankingTpLevel,BigDecimal rankingTargetPercent,BigDecimal selectedTpPercent,BigDecimal selectedSlPercent,Instant tpHitAt,Instant slHitAt,Instant firstTouchAt,String outcome,Long resolutionSeconds,boolean notificationEligible,boolean telegramSent,String suppressionReason,String simulationStatus){}
     public record Page(List<Row>content,int page,int size,long totalElements,int totalPages){}

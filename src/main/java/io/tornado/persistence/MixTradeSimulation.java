@@ -9,6 +9,7 @@ import java.util.*;
 public class MixTradeSimulation {
     /** TARGET_HIT/STOP_LOSS_HIT are retained so historic rows remain readable. */
     public enum Status { OPEN, TP3_HIT, SL3_HIT, TARGET_HIT, STOP_LOSS_HIT, CANCELLED, ERROR }
+    public enum TradeOutcome { PENDING, SUCCESS }
     public enum Milestone { TP1, TP2, TP3, SL1, SL2, SL3 }
     public enum NotificationDeliveryStatus { NOT_ATTEMPTED, SENT, SKIPPED, FAILED, LEGACY }
     public record Observation(boolean changed, List<Milestone> milestones, boolean terminal) {
@@ -33,6 +34,8 @@ public class MixTradeSimulation {
     @Column(name="tp1_hit_at") private Instant tp1HitAt; @Column(name="tp2_hit_at") private Instant tp2HitAt; @Column(name="tp3_hit_at") private Instant tp3HitAt; @Column(name="sl1_hit_at") private Instant sl1HitAt; @Column(name="sl2_hit_at") private Instant sl2HitAt; @Column(name="sl3_hit_at") private Instant sl3HitAt;
     @Column(name="tp1_hit_sequence") private Long tp1HitSequence; @Column(name="tp2_hit_sequence") private Long tp2HitSequence; @Column(name="tp3_hit_sequence") private Long tp3HitSequence; @Column(name="sl1_hit_sequence") private Long sl1HitSequence; @Column(name="sl2_hit_sequence") private Long sl2HitSequence; @Column(name="sl3_hit_sequence") private Long sl3HitSequence;
     @Enumerated(EnumType.STRING) @Column(length=24) private Status status;
+    @Enumerated(EnumType.STRING) @Column(name="trade_outcome",nullable=false,length=16) private TradeOutcome tradeOutcome=TradeOutcome.PENDING;
+    @Column(name="success_at") private Instant successAt;
     private Instant closedAt; @Column(precision=30,scale=12) private BigDecimal closePrice;
     @Column(precision=30,scale=12) private BigDecimal lastCheckedPrice; @Column(nullable=false) private Instant lastCheckedAt; private Long lastCheckedSequence;
     private Double resultPercent; private Long telegramMessageId; @Column(unique=true,length=300) private String activeKey;
@@ -71,7 +74,7 @@ public class MixTradeSimulation {
     public Observation observeMilestones(BigDecimal price,Instant at,Long sequence) {
         if(status!=Status.OPEN||at.isBefore(lastCheckedAt)||(at.equals(lastCheckedAt)&&sequence!=null&&lastCheckedSequence!=null&&sequence<=lastCheckedSequence)) return Observation.none();
         lastCheckedPrice=price;lastCheckedAt=at;lastCheckedSequence=sequence;updatedAt=at;List<Milestone> hit=new ArrayList<>();
-        if(tp1HitAt==null&&crossed(price,tp1Price,true)){tp1HitAt=at;tp1HitSequence=sequence;hit.add(Milestone.TP1);}if(tp2HitAt==null&&crossed(price,tp2Price,true)){tp2HitAt=at;tp2HitSequence=sequence;hit.add(Milestone.TP2);}if(tp3HitAt==null&&crossed(price,tp3Price,true)){tp3HitAt=at;tp3HitSequence=sequence;hit.add(Milestone.TP3);}
+        if(tp1HitAt==null&&crossed(price,tp1Price,true)){tp1HitAt=at;tp1HitSequence=sequence;tradeOutcome=TradeOutcome.SUCCESS;successAt=at;hit.add(Milestone.TP1);}if(tp2HitAt==null&&crossed(price,tp2Price,true)){tp2HitAt=at;tp2HitSequence=sequence;hit.add(Milestone.TP2);}if(tp3HitAt==null&&crossed(price,tp3Price,true)){tp3HitAt=at;tp3HitSequence=sequence;hit.add(Milestone.TP3);}
         if(sl1HitAt==null&&crossed(price,sl1Price,false)){sl1HitAt=at;sl1HitSequence=sequence;hit.add(Milestone.SL1);}if(sl2HitAt==null&&crossed(price,sl2Price,false)){sl2HitAt=at;sl2HitSequence=sequence;hit.add(Milestone.SL2);}if(sl3HitAt==null&&crossed(price,sl3Price,false)){sl3HitAt=at;sl3HitSequence=sequence;hit.add(Milestone.SL3);}
         boolean terminal=hit.contains(Milestone.TP3)||hit.contains(Milestone.SL3);if(terminal){status=hit.contains(Milestone.TP3)?Status.TP3_HIT:Status.SL3_HIT;closedAt=at;closePrice=price;resultPercent=price.subtract(entryPrice).divide(entryPrice,12,RoundingMode.HALF_UP).doubleValue()*100*(direction==Direction.UP?1:-1);activeKey=null;}
         return new Observation(!hit.isEmpty(),List.copyOf(hit),terminal);
@@ -80,6 +83,7 @@ public class MixTradeSimulation {
     private boolean crossed(BigDecimal price,BigDecimal threshold,boolean takeProfit){if(threshold==null)return false;return direction==Direction.UP?(takeProfit?price.compareTo(threshold)>=0:price.compareTo(threshold)<=0):(takeProfit?price.compareTo(threshold)<=0:price.compareTo(threshold)>=0);}
     public boolean isTerminal(){return status!=Status.OPEN;}
     public String getActiveKey(){return activeKey;}
+    public TradeOutcome getTradeOutcome(){return tradeOutcome;}public Instant getSuccessAt(){return successAt;}public boolean isSuccessfulTrade(){return tradeOutcome==TradeOutcome.SUCCESS;}
     public List<Integer> getStrategyVersions(){return split(strategyVersions).stream().filter(s->!s.isBlank()).map(Integer::valueOf).toList();}
     public Long tpHitSequence(int level){return level==1?tp1HitSequence:level==2?tp2HitSequence:level==3?tp3HitSequence:invalidLevel(level);}public Long slHitSequence(int level){return level==1?sl1HitSequence:level==2?sl2HitSequence:level==3?sl3HitSequence:invalidLevel(level);}public Long getLastCheckedSequence(){return lastCheckedSequence;}
 

@@ -126,7 +126,7 @@ class MixTradeSimulationServiceTest {
         when(f.simulations.lockOpenByPair("BTCUSDT")).thenReturn(List.of(s)); when(f.telegram.edit(eq(42L),anyString())).thenReturn(f.sent());
         f.service.observe("BTCUSDT",new BigDecimal("101.2"),Instant.EPOCH.plusSeconds(60));
         assertThat(s.getStatus()).isEqualTo(MixTradeSimulation.Status.TP3_HIT); assertThat(s.getTp1HitAt()).isEqualTo(s.getTp3HitAt());
-        verify(f.telegram).edit(eq(42L),messageContaining("TP1 TOUCHED","TP2 TOUCHED","TP3 TOUCHED","TP3 HIT")); verify(f.telegram,never()).send(anyString());
+        verify(f.telegram).edit(eq(42L),messageContaining("TRADE SUCCESS · TP1 HIT","TP2 TOUCHED","TP3 TOUCHED","TP3 HIT")); verify(f.telegram,never()).send(anyString());
     }
 
     @Test void stopTerminalEditFallsBackWithoutLosingState() {
@@ -142,7 +142,7 @@ class MixTradeSimulationServiceTest {
         when(f.market.historicalTrades(eq("BTCUSDT"),eq(Instant.EPOCH),eq(Instant.EPOCH.plusSeconds(30)))).thenReturn(List.of(new BinanceMarketDataClient.AggregateTrade(1,new BigDecimal("99.4"),Instant.EPOCH.plusSeconds(10)),new BinanceMarketDataClient.AggregateTrade(2,new BigDecimal("100.6"),Instant.EPOCH.plusSeconds(20))));
         when(f.telegram.edit(eq(42L),anyString())).thenReturn(f.sent()); f.service.recover("BTCUSDT",Instant.EPOCH.plusSeconds(30));
         assertThat(s.getStatus()).isEqualTo(MixTradeSimulation.Status.OPEN); assertThat(s.getSl1HitAt()).isEqualTo(Instant.EPOCH.plusSeconds(10)); assertThat(s.getTp1HitAt()).isEqualTo(Instant.EPOCH.plusSeconds(20));
-        verify(f.telegram).edit(eq(42L),messageContaining("SL1 TOUCHED","SL2 TOUCHED","TP1 TOUCHED","TP2 TOUCHED"));
+        verify(f.telegram).edit(eq(42L),messageContaining("SL1 TOUCHED","SL2 TOUCHED","TRADE SUCCESS · TP1 HIT","TP2 TOUCHED"));
     }
 
     private void assertOnlyTpCreates(int tpLevel) {

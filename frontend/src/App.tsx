@@ -3022,7 +3022,7 @@ type OpportunityDashboard = {
     successful: number;
     failed: number;
     ambiguous: number;
-    successRate: number;
+    successRate?: number;
   }[];
 };
 type OpportunityRow = {
@@ -3142,6 +3142,12 @@ function OpportunityAnalytics({ coins }: { coins: Coin[] }) {
       .then(setSelected)
       .catch((e) => setError(String(e)));
   const s = dashboard?.summary;
+  const matrixRate = (cell: OpportunityDashboard["matrix"][number]) =>
+    Number.isFinite(cell.successRate)
+      ? Number(cell.successRate)
+      : cell.successful + cell.failed
+        ? (cell.successful * 100) / (cell.successful + cell.failed)
+        : 0;
   const kpis: [[string, string | number, React.ReactNode?]] | any = [
     ["Found", s?.totalFoundSignals ?? 0],
     ["Eligible", s?.notificationEligible ?? 0],
@@ -3390,12 +3396,12 @@ function OpportunityAnalytics({ coins }: { coins: Coin[] }) {
           <div className="touch-matrix">
             {dashboard?.matrix.map((c) => (
               <div
-                className={`outcome-${c.successRate >= 50 ? "success" : "failed"}`}
+                className={`outcome-${matrixRate(c) >= 50 ? "success" : "failed"}`}
               >
                 <small>
                   TP{c.tpLevel} / SL{c.slLevel}
                 </small>
-                <b>{c.successRate.toFixed(1)}%</b>
+                <b>{matrixRate(c).toFixed(1)}%</b>
                 <span>
                   {c.successful}W · {c.failed}L
                 </span>
