@@ -87,6 +87,30 @@ class MixTradeSimulationServiceTest {
         verify(f.telegram).send(messageContaining("TP1","TP2","TP3","SL1","SL2","SL3"));
     }
 
+    @Test void belowThresholdOpportunityIsPersistedButNotSent() {
+        Fixture f = new Fixture();
+        f.configuration.updateMixSignals(1, f.configuration.getTpSlLevels(), new BigDecimal("65"), false);
+        f.useMixes(f.mix);
+        f.service.detect(f.coin, f.predictions(Direction.UP, "A","B","C"), Instant.EPOCH, new BigDecimal("100"));
+        ArgumentCaptor<MixTradeSimulation> capture = ArgumentCaptor.forClass(MixTradeSimulation.class);
+        verify(f.simulations).saveAndFlush(capture.capture());
+        assertThat(capture.getValue().isEligibleForNotification()).isFalse();
+        assertThat(capture.getValue().getNotificationSuppressionReason()).isEqualTo("WIN_RATE_BELOW_THRESHOLD");
+        assertThat(capture.getValue().getMinimumNotificationWinRatePercent()).isEqualByComparingTo("65");
+        verify(f.telegram, never()).send(anyString());
+    }
+
+    @Test void telegramFailureDoesNotRemovePersistedOpportunity() {
+        Fixture f = new Fixture(); f.useMixes(f.mix);
+        when(f.telegram.send(anyString())).thenReturn(new TelegramNotificationService.DeliveryResult(TelegramNotificationService.DeliveryResult.Status.FAILED,null,"network failed"));
+        f.service.detect(f.coin, f.predictions(Direction.UP,"A","B","C"), Instant.EPOCH, new BigDecimal("100"));
+        ArgumentCaptor<MixTradeSimulation> capture=ArgumentCaptor.forClass(MixTradeSimulation.class);
+        verify(f.simulations).saveAndFlush(capture.capture());
+        assertThat(capture.getValue().isEligibleForNotification()).isTrue();
+        assertThat(capture.getValue().isTelegramSent()).isFalse();
+        assertThat(capture.getValue().getNotificationDeliveryStatus()).isEqualTo(MixTradeSimulation.NotificationDeliveryStatus.FAILED);
+    }
+
     @Test void oneTickCrossingAllTargetsProducesOneTerminalEdit() {
         Fixture f = new Fixture(); MixTradeSimulation s = f.simulation(Direction.UP);
         when(f.simulations.lockOpenByPair("BTCUSDT")).thenReturn(List.of(s)); when(f.telegram.edit(eq(42L),anyString())).thenReturn(f.sent());
@@ -128,8 +152,9 @@ class MixTradeSimulationServiceTest {
             ReflectionTestUtils.setField(coin,"id",1L); configuration.updateTelegram(true); when(settings.findById(1)).thenReturn(Optional.of(configuration));
             mix = mix(1,1,"A","B","C"); when(simulations.existsByActiveKey(anyString())).thenReturn(false);
             when(simulations.saveAndFlush(any())).thenAnswer(invocation -> { MixTradeSimulation simulation=invocation.getArgument(0); ReflectionTestUtils.setField(simulation,"id",ids.incrementAndGet()); return simulation; });
-            when(telegram.send(anyString())).thenReturn(sent());
-            service = new MixTradeSimulationService(mixes,simulations,settings,telegram,new TelegramMessageFormatter(),market,new BestMixRankingPolicy());
+            when(telegram.configured()).thenReturn(true); when(telegram.send(anyString())).thenReturn(sent());
+            BestMixRankingPolicy rankings = new BestMixRankingPolicy();
+            service = new MixTradeSimulationService(mixes,simulations,settings,telegram,new TelegramMessageFormatter(),market,rankings,new NotificationEligibilityPolicy(rankings));
         }
         void useMixes(BestMethodMix... rows) { when(mixes.findByCoinIdAndHorizonSecondsAndSignalVersionOrderByMixSizeAscRankAsc(1,900,3)).thenReturn(List.of(rows)); }
         BestMethodMix mix(int tp,int rank,String... codes) { return mix(tp,rank,TpSlLevels.defaults().tp(tp),codes); }
