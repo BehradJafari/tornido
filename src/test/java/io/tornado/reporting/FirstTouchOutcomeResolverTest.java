@@ -21,6 +21,9 @@ class FirstTouchOutcomeResolverTest {
     @Test void successWhenTpWasFirst() { assertThat(resolver.resolve(first, second)).isEqualTo(SUCCESS); }
     @Test void failedWhenSlWasFirst() { assertThat(resolver.resolve(second, first)).isEqualTo(FAILED); }
     @Test void ambiguousWhenBothWereObservedTogether() { assertThat(resolver.resolve(first, first)).isEqualTo(AMBIGUOUS); }
+    @Test void equalTimestampUsesAggregateTradeOrderForFailure() { assertThat(resolver.resolve(first,101L,first,100L)).isEqualTo(FAILED); }
+    @Test void equalTimestampUsesAggregateTradeOrderForSuccess() { assertThat(resolver.resolve(first,100L,first,101L)).isEqualTo(SUCCESS); }
+    @Test void equalTimestampAndEqualAggregateTradeRemainsAmbiguous() { assertThat(resolver.resolve(first,100L,first,100L)).isEqualTo(AMBIGUOUS); }
 
     @Test void selectedTpLevelChangesTheDerivedOutcome() {
         MixTradeSimulation signal=mock(MixTradeSimulation.class);

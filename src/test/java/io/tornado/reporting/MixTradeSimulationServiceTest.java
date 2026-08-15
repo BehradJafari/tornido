@@ -7,6 +7,7 @@ import io.tornado.persistence.*;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -44,7 +45,7 @@ class MixTradeSimulationServiceTest {
         f.useMixes(f.mix(3, 1, "A", "B", "C"), f.mix(1, 2, "A", "B", "C"), f.mix(2, 1, "A", "B", "C"));
         f.service.detect(f.coin, f.predictions(Direction.UP, "A","B","C"), Instant.EPOCH, new BigDecimal("100"));
         verify(f.simulations).saveAndFlush(any());
-        verify(f.telegram).send(anyString());
+        verify(f.events).publishEvent(any(OpportunityCommittedEvent.class));
     }
 
     @Test void oppositeConsensusDirectionUsesDifferentActiveIdentity() {
@@ -76,15 +77,21 @@ class MixTradeSimulationServiceTest {
         verifyNoInteractions(f.telegram);
     }
 
+    @Test void persistenceFailureNeverPublishesNotificationOrCallsTelegram() {
+        Fixture f=new Fixture();f.useMixes(f.mix);doThrow(new IllegalStateException("commit preparation failed")).when(f.simulations).saveAndFlush(any());
+        org.assertj.core.api.Assertions.assertThatThrownBy(()->f.service.detect(f.coin,f.predictions(Direction.UP,"A","B","C"),Instant.EPOCH,new BigDecimal("100"))).isInstanceOf(IllegalStateException.class);
+        verifyNoInteractions(f.events);verify(f.telegram,never()).send(anyString());
+    }
+
     @Test void qualifyingConsensusPersistsConfiguredLadder() {
         Fixture f = new Fixture();
         f.useMixes(f.mix);
         f.service.detect(f.coin, f.predictions(Direction.UP, "A","B","C"), Instant.EPOCH, new BigDecimal("100"));
         ArgumentCaptor<MixTradeSimulation> capture = ArgumentCaptor.forClass(MixTradeSimulation.class);
         verify(f.simulations).saveAndFlush(capture.capture());
-        assertThat(capture.getValue().getTelegramMessageId()).isEqualTo(42);
+        assertThat(capture.getValue().getTelegramMessageId()).isNull();
         assertThat(capture.getValue().getTp3Price()).isEqualByComparingTo("101");
-        verify(f.telegram).send(messageContaining("TP1","TP2","TP3","SL1","SL2","SL3"));
+        verify(f.events).publishEvent(any(OpportunityCommittedEvent.class));
     }
 
     @Test void belowThresholdOpportunityIsPersistedButNotSent() {
@@ -97,18 +104,21 @@ class MixTradeSimulationServiceTest {
         assertThat(capture.getValue().isEligibleForNotification()).isFalse();
         assertThat(capture.getValue().getNotificationSuppressionReason()).isEqualTo("WIN_RATE_BELOW_THRESHOLD");
         assertThat(capture.getValue().getMinimumNotificationWinRatePercent()).isEqualByComparingTo("65");
-        verify(f.telegram, never()).send(anyString());
+        assertThat(capture.getValue().getActiveKey()).isNull();
+        verify(f.events, never()).publishEvent(any(OpportunityCommittedEvent.class));
     }
 
-    @Test void telegramFailureDoesNotRemovePersistedOpportunity() {
+    @Test void eligibleOpportunityOnlyPublishesAfterCommitEventAndDoesNotSendInline() {
         Fixture f = new Fixture(); f.useMixes(f.mix);
-        when(f.telegram.send(anyString())).thenReturn(new TelegramNotificationService.DeliveryResult(TelegramNotificationService.DeliveryResult.Status.FAILED,null,"network failed"));
         f.service.detect(f.coin, f.predictions(Direction.UP,"A","B","C"), Instant.EPOCH, new BigDecimal("100"));
         ArgumentCaptor<MixTradeSimulation> capture=ArgumentCaptor.forClass(MixTradeSimulation.class);
         verify(f.simulations).saveAndFlush(capture.capture());
         assertThat(capture.getValue().isEligibleForNotification()).isTrue();
+        assertThat(capture.getValue().getActiveKey()).isNotBlank();
         assertThat(capture.getValue().isTelegramSent()).isFalse();
-        assertThat(capture.getValue().getNotificationDeliveryStatus()).isEqualTo(MixTradeSimulation.NotificationDeliveryStatus.FAILED);
+        assertThat(capture.getValue().getNotificationDeliveryStatus()).isEqualTo(MixTradeSimulation.NotificationDeliveryStatus.NOT_ATTEMPTED);
+        verify(f.events).publishEvent(new OpportunityCommittedEvent(capture.getValue().getId()));
+        verify(f.telegram,never()).send(anyString());
     }
 
     @Test void oneTickCrossingAllTargetsProducesOneTerminalEdit() {
@@ -146,7 +156,7 @@ class MixTradeSimulationServiceTest {
     static class Fixture {
         final Coin coin = new Coin("BTC","BTCUSDT"); final BestMethodMixRepository mixes = mock(BestMethodMixRepository.class);
         final MixTradeSimulationRepository simulations = mock(MixTradeSimulationRepository.class); final AppSettingsRepository settings = mock(AppSettingsRepository.class);
-        final TelegramNotificationService telegram = mock(TelegramNotificationService.class); final BinanceMarketDataClient market = mock(BinanceMarketDataClient.class);
+        final TelegramNotificationService telegram = mock(TelegramNotificationService.class); final BinanceMarketDataClient market = mock(BinanceMarketDataClient.class); final ApplicationEventPublisher events=mock(ApplicationEventPublisher.class);
         final AppSettings configuration = new AppSettings(900,900); final BestMethodMix mix; final MixTradeSimulationService service; final AtomicLong ids = new AtomicLong(10);
         Fixture() {
             ReflectionTestUtils.setField(coin,"id",1L); configuration.updateTelegram(true); when(settings.findById(1)).thenReturn(Optional.of(configuration));
@@ -154,7 +164,7 @@ class MixTradeSimulationServiceTest {
             when(simulations.saveAndFlush(any())).thenAnswer(invocation -> { MixTradeSimulation simulation=invocation.getArgument(0); ReflectionTestUtils.setField(simulation,"id",ids.incrementAndGet()); return simulation; });
             when(telegram.configured()).thenReturn(true); when(telegram.send(anyString())).thenReturn(sent());
             BestMixRankingPolicy rankings = new BestMixRankingPolicy();
-            service = new MixTradeSimulationService(mixes,simulations,settings,telegram,new TelegramMessageFormatter(),market,rankings,new NotificationEligibilityPolicy(rankings));
+            service = new MixTradeSimulationService(mixes,simulations,settings,telegram,new TelegramMessageFormatter(),market,rankings,new NotificationEligibilityPolicy(rankings),events);
         }
         void useMixes(BestMethodMix... rows) { when(mixes.findByCoinIdAndHorizonSecondsAndSignalVersionOrderByMixSizeAscRankAsc(1,900,3)).thenReturn(List.of(rows)); }
         BestMethodMix mix(int tp,int rank,String... codes) { return mix(tp,rank,TpSlLevels.defaults().tp(tp),codes); }
