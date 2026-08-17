@@ -48,7 +48,7 @@ class MixTradeSimulationServiceTest {
         verify(f.events).publishEvent(any(OpportunityCommittedEvent.class));
     }
 
-    @Test void oppositeConsensusDirectionUsesDifferentActiveIdentity() {
+    @Test void oppositeConsensusDirectionCreatesIndependentSimulations() {
         Fixture f = new Fixture();
         f.useMixes(f.mix(1, 1, "A", "B", "C"));
         f.service.detect(f.coin, f.predictions(Direction.UP, "A","B","C"), Instant.EPOCH, new BigDecimal("100"));
@@ -56,7 +56,6 @@ class MixTradeSimulationServiceTest {
         ArgumentCaptor<MixTradeSimulation> saved = ArgumentCaptor.forClass(MixTradeSimulation.class);
         verify(f.simulations, times(2)).saveAndFlush(saved.capture());
         assertThat(saved.getAllValues()).extracting(MixTradeSimulation::getDirection).containsExactly(Direction.UP, Direction.DOWN);
-        assertThat(MixTradeSimulation.activeKey(f.coin, f.mix, Direction.UP)).isNotEqualTo(MixTradeSimulation.activeKey(f.coin, f.mix, Direction.DOWN));
     }
 
     @Test void staleTargetPercentRankingIsIgnored() {
@@ -68,13 +67,17 @@ class MixTradeSimulationServiceTest {
         verifyNoInteractions(f.telegram);
     }
 
-    @Test void activeKeyDatabaseGuardStillSuppressesConcurrentDuplicate() {
+    @Test void repeatedQualifyingSnapshotsCreateIndependentTradesAndNotifications() {
         Fixture f = new Fixture();
         f.useMixes(f.mix);
-        when(f.simulations.existsByActiveKey(anyString())).thenReturn(true);
         f.service.detect(f.coin, f.predictions(Direction.UP, "A","B","C"), Instant.EPOCH, new BigDecimal("100"));
-        verify(f.simulations, never()).saveAndFlush(any());
-        verifyNoInteractions(f.telegram);
+        f.service.detect(f.coin, f.predictions(Direction.UP, "A","B","C"), Instant.EPOCH.plusSeconds(900), new BigDecimal("101"));
+        ArgumentCaptor<MixTradeSimulation> saved = ArgumentCaptor.forClass(MixTradeSimulation.class);
+        verify(f.simulations, times(2)).saveAndFlush(saved.capture());
+        assertThat(saved.getAllValues()).extracting(MixTradeSimulation::getOpenedAt)
+                .containsExactly(Instant.EPOCH, Instant.EPOCH.plusSeconds(900));
+        assertThat(saved.getAllValues()).extracting(MixTradeSimulation::getActiveKey).containsOnlyNulls();
+        verify(f.events, times(2)).publishEvent(any(OpportunityCommittedEvent.class));
     }
 
     @Test void persistenceFailureNeverPublishesNotificationOrCallsTelegram() {
@@ -114,7 +117,7 @@ class MixTradeSimulationServiceTest {
         ArgumentCaptor<MixTradeSimulation> capture=ArgumentCaptor.forClass(MixTradeSimulation.class);
         verify(f.simulations).saveAndFlush(capture.capture());
         assertThat(capture.getValue().isEligibleForNotification()).isTrue();
-        assertThat(capture.getValue().getActiveKey()).isNotBlank();
+        assertThat(capture.getValue().getActiveKey()).isNull();
         assertThat(capture.getValue().isTelegramSent()).isFalse();
         assertThat(capture.getValue().getNotificationDeliveryStatus()).isEqualTo(MixTradeSimulation.NotificationDeliveryStatus.NOT_ATTEMPTED);
         verify(f.events).publishEvent(new OpportunityCommittedEvent(capture.getValue().getId()));
@@ -126,14 +129,14 @@ class MixTradeSimulationServiceTest {
         when(f.simulations.lockOpenByPair("BTCUSDT")).thenReturn(List.of(s)); when(f.telegram.edit(eq(42L),anyString())).thenReturn(f.sent());
         f.service.observe("BTCUSDT",new BigDecimal("101.2"),Instant.EPOCH.plusSeconds(60));
         assertThat(s.getStatus()).isEqualTo(MixTradeSimulation.Status.TP3_HIT); assertThat(s.getTp1HitAt()).isEqualTo(s.getTp3HitAt());
-        verify(f.telegram).edit(eq(42L),messageContaining("TRADE SUCCESS · TP1 HIT","TP2 TOUCHED","TP3 TOUCHED","TP3 HIT")); verify(f.telegram,never()).send(anyString());
+        verify(f.telegram).edit(eq(42L),messageContaining("TRADE SUCCESS · TP1 HIT FIRST","✅ 2️⃣ TP2","✅ 3️⃣ TP3")); verify(f.telegram,never()).send(anyString());
     }
 
     @Test void stopTerminalEditFallsBackWithoutLosingState() {
         Fixture f = new Fixture(); MixTradeSimulation s = f.simulation(Direction.DOWN);
         when(f.simulations.lockOpenByPair("BTCUSDT")).thenReturn(List.of(s)); when(f.telegram.edit(eq(42L),anyString())).thenReturn(new TelegramNotificationService.DeliveryResult(TelegramNotificationService.DeliveryResult.Status.FAILED,null,"edit failed"));
         f.service.observe("BTCUSDT",new BigDecimal("101.2"),Instant.EPOCH.plusSeconds(60));
-        assertThat(s.getStatus()).isEqualTo(MixTradeSimulation.Status.SL3_HIT); verify(f.telegram).edit(eq(42L),contains("SL3 HIT")); verify(f.telegram).send(contains("SL3 HIT"));
+        assertThat(s.getStatus()).isEqualTo(MixTradeSimulation.Status.SL3_HIT); verify(f.telegram).edit(eq(42L),messageContaining("TRADE FAILED · SL1 HIT FIRST","3️⃣ SL3:","HIT at")); verify(f.telegram).send(messageContaining("TRADE FAILED · SL1 HIT FIRST","3️⃣ SL3:","HIT at"));
     }
 
     @Test void recoveryPreservesOrderedMixedTouchesAndCoalescesEdit() {
@@ -142,7 +145,7 @@ class MixTradeSimulationServiceTest {
         when(f.market.historicalTrades(eq("BTCUSDT"),eq(Instant.EPOCH),eq(Instant.EPOCH.plusSeconds(30)))).thenReturn(List.of(new BinanceMarketDataClient.AggregateTrade(1,new BigDecimal("99.4"),Instant.EPOCH.plusSeconds(10)),new BinanceMarketDataClient.AggregateTrade(2,new BigDecimal("100.6"),Instant.EPOCH.plusSeconds(20))));
         when(f.telegram.edit(eq(42L),anyString())).thenReturn(f.sent()); f.service.recover("BTCUSDT",Instant.EPOCH.plusSeconds(30));
         assertThat(s.getStatus()).isEqualTo(MixTradeSimulation.Status.OPEN); assertThat(s.getSl1HitAt()).isEqualTo(Instant.EPOCH.plusSeconds(10)); assertThat(s.getTp1HitAt()).isEqualTo(Instant.EPOCH.plusSeconds(20));
-        verify(f.telegram).edit(eq(42L),messageContaining("SL1 TOUCHED","SL2 TOUCHED","TRADE SUCCESS · TP1 HIT","TP2 TOUCHED"));
+        verify(f.telegram).edit(eq(42L),messageContaining("TRADE FAILED · SL1 HIT FIRST","❌ 1️⃣ SL1","❌ 2️⃣ SL2","✅ 1️⃣ TP1","✅ 2️⃣ TP2"));
     }
 
     private void assertOnlyTpCreates(int tpLevel) {
@@ -160,7 +163,7 @@ class MixTradeSimulationServiceTest {
         final AppSettings configuration = new AppSettings(900,900); final BestMethodMix mix; final MixTradeSimulationService service; final AtomicLong ids = new AtomicLong(10);
         Fixture() {
             ReflectionTestUtils.setField(coin,"id",1L); configuration.updateTelegram(true); when(settings.findById(1)).thenReturn(Optional.of(configuration));
-            mix = mix(1,1,"A","B","C"); when(simulations.existsByActiveKey(anyString())).thenReturn(false);
+            mix = mix(1,1,"A","B","C");
             when(simulations.saveAndFlush(any())).thenAnswer(invocation -> { MixTradeSimulation simulation=invocation.getArgument(0); ReflectionTestUtils.setField(simulation,"id",ids.incrementAndGet()); return simulation; });
             when(telegram.configured()).thenReturn(true); when(telegram.send(anyString())).thenReturn(sent());
             BestMixRankingPolicy rankings = new BestMixRankingPolicy();

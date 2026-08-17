@@ -9,7 +9,7 @@ import java.util.*;
 public class MixTradeSimulation {
     /** TARGET_HIT/STOP_LOSS_HIT are retained so historic rows remain readable. */
     public enum Status { OPEN, TP3_HIT, SL3_HIT, TARGET_HIT, STOP_LOSS_HIT, CANCELLED, ERROR }
-    public enum TradeOutcome { PENDING, SUCCESS }
+    public enum TradeOutcome { PENDING, SUCCESS, FAILED }
     public enum Milestone { TP1, TP2, TP3, SL1, SL2, SL3 }
     public enum NotificationDeliveryStatus { NOT_ATTEMPTED, SENT, SKIPPED, FAILED, LEGACY }
     public record Observation(boolean changed, List<Milestone> milestones, boolean terminal) {
@@ -36,6 +36,7 @@ public class MixTradeSimulation {
     @Enumerated(EnumType.STRING) @Column(length=24) private Status status;
     @Enumerated(EnumType.STRING) @Column(name="trade_outcome",nullable=false,length=16) private TradeOutcome tradeOutcome=TradeOutcome.PENDING;
     @Column(name="success_at") private Instant successAt;
+    @Column(name="failure_at") private Instant failureAt;
     private Instant closedAt; @Column(precision=30,scale=12) private BigDecimal closePrice;
     @Column(precision=30,scale=12) private BigDecimal lastCheckedPrice; @Column(nullable=false) private Instant lastCheckedAt; private Long lastCheckedSequence;
     private Double resultPercent; private Long telegramMessageId; @Column(unique=true,length=300) private String activeKey;
@@ -60,7 +61,9 @@ public class MixTradeSimulation {
         sl1Price=levels.price(entry,direction,false,1);sl2Price=levels.price(entry,direction,false,2);sl3Price=levels.price(entry,direction,false,3);
         targetPrice=tp3Price;stopLossPrice=sl3Price;status=Status.OPEN;lastCheckedPrice=entry;lastCheckedAt=opened;
         signalVersion=mix.getSignalVersion();rankingTpLevel=mix.getTpLevel();rankingTargetPercent=mix.getTargetPercent();eligibleForNotification=true;
-        activeKey=activeKey(coin,mix,direction);createdAt=opened;updatedAt=opened;
+        // Every qualifying snapshot is an independent opportunity. TP/SL milestones
+        // track this row only and must never suppress a later signal.
+        activeKey=null;createdAt=opened;updatedAt=opened;
     }
     public MixTradeSimulation(Coin coin,BestMethodMix mix,Direction direction,int agreement,BigDecimal entry,TpSlLevels levels,Instant opened,BigDecimal minimumNotificationWinRatePercent,boolean eligibleForNotification,String suppressionReason) { this(coin,mix,direction,agreement,entry,levels,opened);this.minimumNotificationWinRatePercent=minimumNotificationWinRatePercent;this.eligibleForNotification=eligibleForNotification;this.notificationSuppressionReason=suppressionReason;if(!eligibleForNotification)activeKey=null; }
     /** Compatibility constructor for callers compiled against the old API. */
@@ -74,8 +77,8 @@ public class MixTradeSimulation {
     public Observation observeMilestones(BigDecimal price,Instant at,Long sequence) {
         if(status!=Status.OPEN||at.isBefore(lastCheckedAt)||(at.equals(lastCheckedAt)&&sequence!=null&&lastCheckedSequence!=null&&sequence<=lastCheckedSequence)) return Observation.none();
         lastCheckedPrice=price;lastCheckedAt=at;lastCheckedSequence=sequence;updatedAt=at;List<Milestone> hit=new ArrayList<>();
-        if(tp1HitAt==null&&crossed(price,tp1Price,true)){tp1HitAt=at;tp1HitSequence=sequence;tradeOutcome=TradeOutcome.SUCCESS;successAt=at;hit.add(Milestone.TP1);}if(tp2HitAt==null&&crossed(price,tp2Price,true)){tp2HitAt=at;tp2HitSequence=sequence;hit.add(Milestone.TP2);}if(tp3HitAt==null&&crossed(price,tp3Price,true)){tp3HitAt=at;tp3HitSequence=sequence;hit.add(Milestone.TP3);}
-        if(sl1HitAt==null&&crossed(price,sl1Price,false)){sl1HitAt=at;sl1HitSequence=sequence;hit.add(Milestone.SL1);}if(sl2HitAt==null&&crossed(price,sl2Price,false)){sl2HitAt=at;sl2HitSequence=sequence;hit.add(Milestone.SL2);}if(sl3HitAt==null&&crossed(price,sl3Price,false)){sl3HitAt=at;sl3HitSequence=sequence;hit.add(Milestone.SL3);}
+        if(tp1HitAt==null&&crossed(price,tp1Price,true)){tp1HitAt=at;tp1HitSequence=sequence;if(tradeOutcome==TradeOutcome.PENDING){tradeOutcome=TradeOutcome.SUCCESS;successAt=at;}hit.add(Milestone.TP1);}if(tp2HitAt==null&&crossed(price,tp2Price,true)){tp2HitAt=at;tp2HitSequence=sequence;hit.add(Milestone.TP2);}if(tp3HitAt==null&&crossed(price,tp3Price,true)){tp3HitAt=at;tp3HitSequence=sequence;hit.add(Milestone.TP3);}
+        if(sl1HitAt==null&&crossed(price,sl1Price,false)){sl1HitAt=at;sl1HitSequence=sequence;if(tradeOutcome==TradeOutcome.PENDING){tradeOutcome=TradeOutcome.FAILED;failureAt=at;}hit.add(Milestone.SL1);}if(sl2HitAt==null&&crossed(price,sl2Price,false)){sl2HitAt=at;sl2HitSequence=sequence;hit.add(Milestone.SL2);}if(sl3HitAt==null&&crossed(price,sl3Price,false)){sl3HitAt=at;sl3HitSequence=sequence;hit.add(Milestone.SL3);}
         boolean terminal=hit.contains(Milestone.TP3)||hit.contains(Milestone.SL3);if(terminal){status=hit.contains(Milestone.TP3)?Status.TP3_HIT:Status.SL3_HIT;closedAt=at;closePrice=price;resultPercent=price.subtract(entryPrice).divide(entryPrice,12,RoundingMode.HALF_UP).doubleValue()*100*(direction==Direction.UP?1:-1);activeKey=null;}
         return new Observation(!hit.isEmpty(),List.copyOf(hit),terminal);
     }
@@ -83,7 +86,7 @@ public class MixTradeSimulation {
     private boolean crossed(BigDecimal price,BigDecimal threshold,boolean takeProfit){if(threshold==null)return false;return direction==Direction.UP?(takeProfit?price.compareTo(threshold)>=0:price.compareTo(threshold)<=0):(takeProfit?price.compareTo(threshold)<=0:price.compareTo(threshold)>=0);}
     public boolean isTerminal(){return status!=Status.OPEN;}
     public String getActiveKey(){return activeKey;}
-    public TradeOutcome getTradeOutcome(){return tradeOutcome;}public Instant getSuccessAt(){return successAt;}public boolean isSuccessfulTrade(){return tradeOutcome==TradeOutcome.SUCCESS;}
+    public TradeOutcome getTradeOutcome(){return tradeOutcome;}public Instant getSuccessAt(){return successAt;}public Instant getFailureAt(){return failureAt;}public Instant getOutcomeAt(){return successAt!=null?successAt:failureAt;}public boolean isSuccessfulTrade(){return tradeOutcome==TradeOutcome.SUCCESS;}public boolean isFailedTrade(){return tradeOutcome==TradeOutcome.FAILED;}
     public List<Integer> getStrategyVersions(){return split(strategyVersions).stream().filter(s->!s.isBlank()).map(Integer::valueOf).toList();}
     public Long tpHitSequence(int level){return level==1?tp1HitSequence:level==2?tp2HitSequence:level==3?tp3HitSequence:invalidLevel(level);}public Long slHitSequence(int level){return level==1?sl1HitSequence:level==2?sl2HitSequence:level==3?sl3HitSequence:invalidLevel(level);}public Long getLastCheckedSequence(){return lastCheckedSequence;}
 
