@@ -14,6 +14,14 @@ import java.util.Optional;
 public interface ActiveSignalLockRepository extends JpaRepository<ActiveSignalLock, Long> {
     boolean existsByCoinIdAndHorizonSecondsAndStatus(long coinId, long horizonSeconds, ActiveSignalLock.Status status);
 
+    boolean existsBySimulationId(long simulationId);
+
+    long countByCoinIdAndHorizonSecondsAndStatus(
+            long coinId,
+            long horizonSeconds,
+            ActiveSignalLock.Status status
+    );
+
     @EntityGraph(attributePaths = {"coin", "bestMethodMix", "simulation", "simulation.coin"})
     List<ActiveSignalLock> findByStatusOrderByOpenedAtDesc(ActiveSignalLock.Status status);
 

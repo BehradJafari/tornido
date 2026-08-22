@@ -42,20 +42,21 @@ public class ActiveSignalLockService {
         }
 
         ActiveSignalLock lock = new ActiveSignalLock(coin, mix, simulation, entryPrice, openedAt);
-        try {
-            if (isPostgreSql()) {
-                int inserted = insertPostgres(lock);
-                if (inserted == 0) {
-                    logSuppression(coin, mix.getHorizonSeconds(), simulation.getId());
-                    return AdmissionResult.rejected(SignalNotificationAuditReason.POSITION_ALREADY_OPEN);
-                }
-                lock = locks.findBySimulationId(simulation.getId()).orElseThrow();
-            } else {
-                lock = locks.saveAndFlush(lock);
+        if (isPostgreSql()) {
+            int inserted = insertPostgres(lock);
+            if (inserted == 0) {
+                logSuppression(coin, mix.getHorizonSeconds(), simulation.getId());
+                return AdmissionResult.rejected(SignalNotificationAuditReason.POSITION_ALREADY_OPEN);
             }
-        } catch (DataIntegrityViolationException conflict) {
-            logSuppression(coin, mix.getHorizonSeconds(), simulation.getId());
-            return AdmissionResult.rejected(SignalNotificationAuditReason.POSITION_ALREADY_OPEN);
+            lock = locks.findBySimulationId(simulation.getId()).orElseThrow();
+        } else {
+            try {
+                lock = locks.saveAndFlush(lock);
+            } catch (DataIntegrityViolationException conflict) {
+                if (!isOpenScopeConflict(conflict)) throw conflict;
+                logSuppression(coin, mix.getHorizonSeconds(), simulation.getId());
+                return AdmissionResult.rejected(SignalNotificationAuditReason.POSITION_ALREADY_OPEN);
+            }
         }
         log.info("ACTIVE_SIGNAL_LOCK_OPEN lockId={} coin={} pair={} horizon={} simulationId={}",
                 lock.getId(), coin.getSymbol(), coin.getPair(), mix.getHorizonSeconds(), simulation.getId());
@@ -63,9 +64,22 @@ public class ActiveSignalLockService {
     }
 
     @Transactional
-    public boolean synchronizeFromSimulation(MixTradeSimulation simulation) {
-        return locks.lockOpenBySimulationId(simulation.getId(), ActiveSignalLock.Status.OPEN)
-                .map(lock -> closeFromFirstTouch(lock, simulation)).orElse(false);
+    public SynchronizationState synchronizeFromSimulation(MixTradeSimulation simulation) {
+        ActiveSignalLock lock = locks.lockOpenBySimulationId(
+                simulation.getId(), ActiveSignalLock.Status.OPEN).orElse(null);
+        if (lock == null) {
+            return locks.existsBySimulationId(simulation.getId())
+                    ? SynchronizationState.LOCK_ALREADY_CLOSED
+                    : SynchronizationState.NO_LOCK;
+        }
+        if (closeFromFirstTouch(lock, simulation)) {
+            return SynchronizationState.LOCK_JUST_CLOSED;
+        }
+        Instant lastCheckedAt = simulation.getLastCheckedAt();
+        if (lastCheckedAt != null && lastCheckedAt.isAfter(lock.getExpectedCloseAt())) {
+            return SynchronizationState.LOCK_OPEN_AFTER_DEADLINE;
+        }
+        return SynchronizationState.LOCK_OPEN_UNCHANGED;
     }
 
     @Transactional
@@ -121,7 +135,8 @@ public class ActiveSignalLockService {
                    opened_at, entry_price, expected_close_at, status, created_at, updated_at)
                 VALUES (:coinId, :horizon, :mixId, :simulationId,
                         :openedAt, :entryPrice, :expectedCloseAt, 'OPEN', :openedAt, :openedAt)
-                ON CONFLICT DO NOTHING
+                ON CONFLICT (coin_id, horizon_seconds) WHERE status = 'OPEN'
+                DO NOTHING
                 """)
                 .setParameter("coinId", lock.getCoin().getId())
                 .setParameter("horizon", lock.getHorizonSeconds())
@@ -139,6 +154,19 @@ public class ActiveSignalLockService {
         return productName.toLowerCase().contains("postgresql");
     }
 
+    private boolean isOpenScopeConflict(DataIntegrityViolationException conflict) {
+        Throwable current = conflict;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.toLowerCase().contains(
+                    "uk_active_signal_lock_open_coin_horizon")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
     private void logSuppression(Coin coin, long horizon, Long simulationId) {
         log.info("ACTIVE_SIGNAL_LOCK_SUPPRESS reason=POSITION_ALREADY_OPEN coin={} pair={} horizon={} simulationId={}",
                 coin.getSymbol(), coin.getPair(), horizon, simulationId);
@@ -147,5 +175,23 @@ public class ActiveSignalLockService {
     public record AdmissionResult(boolean admitted, ActiveSignalLock lock, SignalNotificationAuditReason reason) {
         static AdmissionResult opened(ActiveSignalLock lock) { return new AdmissionResult(true, lock, null); }
         static AdmissionResult rejected(SignalNotificationAuditReason reason) { return new AdmissionResult(false, null, reason); }
+    }
+
+    public enum SynchronizationState {
+        NO_LOCK(true),
+        LOCK_OPEN_UNCHANGED(true),
+        LOCK_OPEN_AFTER_DEADLINE(false),
+        LOCK_JUST_CLOSED(false),
+        LOCK_ALREADY_CLOSED(false);
+
+        private final boolean milestoneTelegramEditAllowed;
+
+        SynchronizationState(boolean milestoneTelegramEditAllowed) {
+            this.milestoneTelegramEditAllowed = milestoneTelegramEditAllowed;
+        }
+
+        public boolean milestoneTelegramEditAllowed() {
+            return milestoneTelegramEditAllowed;
+        }
     }
 }

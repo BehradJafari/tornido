@@ -222,6 +222,48 @@ class MixTradeSimulationServiceTest {
         verify(f.telegram).edit(eq(42L),messageContaining("TRADE FAILED · SL1 HIT FIRST","❌ 1️⃣ SL1","❌ 2️⃣ SL2","✅ 1️⃣ TP1","✅ 2️⃣ TP2"));
     }
 
+    @Test void timeoutFinalTelegramMessageCannotBeOverwrittenByLaterTpMilestone() {
+        assertClosedLockPreventsLaterMilestoneEdit(
+                ActiveSignalLockService.SynchronizationState.LOCK_ALREADY_CLOSED,
+                Direction.UP,
+                new BigDecimal("100.31"),
+                MixTradeSimulation.Status.OPEN);
+    }
+
+    @Test void tpFinalTelegramMessageCannotBeOverwrittenByLaterMilestones() {
+        assertClosedLockPreventsLaterMilestoneEdit(
+                ActiveSignalLockService.SynchronizationState.LOCK_ALREADY_CLOSED,
+                Direction.UP,
+                new BigDecimal("101.2"),
+                MixTradeSimulation.Status.TP3_HIT);
+    }
+
+    @Test void slFinalTelegramMessageCannotBeOverwrittenByLaterMilestones() {
+        assertClosedLockPreventsLaterMilestoneEdit(
+                ActiveSignalLockService.SynchronizationState.LOCK_ALREADY_CLOSED,
+                Direction.DOWN,
+                new BigDecimal("101.2"),
+                MixTradeSimulation.Status.SL3_HIT);
+    }
+
+    private void assertClosedLockPreventsLaterMilestoneEdit(
+            ActiveSignalLockService.SynchronizationState state,
+            Direction direction,
+            BigDecimal laterPrice,
+            MixTradeSimulation.Status expectedAnalyticsStatus) {
+        Fixture fixture = new Fixture();
+        MixTradeSimulation simulation = fixture.simulation(direction);
+        when(fixture.simulations.lockOpenByPair("BTCUSDT")).thenReturn(List.of(simulation));
+        when(fixture.activeLocks.synchronizeFromSimulation(simulation)).thenReturn(state);
+
+        fixture.service.observe("BTCUSDT", laterPrice, Instant.EPOCH.plusSeconds(4_200), 100L);
+
+        assertThat(simulation.getTp1HitAt() != null || simulation.getSl1HitAt() != null).isTrue();
+        assertThat(simulation.getStatus()).isEqualTo(expectedAnalyticsStatus);
+        verify(fixture.telegram, never()).edit(anyLong(), anyString());
+        verify(fixture.telegram, never()).send(anyString());
+    }
+
     private void assertOnlyTpCreates(int tpLevel) {
         Fixture f = new Fixture(); f.useMixes(f.mix(tpLevel, 1, "A", "B", "C"));
         f.service.detect(f.coin, f.predictions(Direction.UP, "A","B","C"), Instant.EPOCH, new BigDecimal("100"));
@@ -240,6 +282,8 @@ class MixTradeSimulationServiceTest {
             mix = mix(1,1,"A","B","C");
             when(simulations.saveAndFlush(any())).thenAnswer(invocation -> { MixTradeSimulation simulation=invocation.getArgument(0); ReflectionTestUtils.setField(simulation,"id",ids.incrementAndGet()); return simulation; });
             when(activeLocks.tryOpen(any(),any(),any(),any(),any())).thenAnswer(invocation -> { ActiveSignalLock lock=mock(ActiveSignalLock.class); when(lock.getId()).thenReturn(ids.incrementAndGet()); return new ActiveSignalLockService.AdmissionResult(true,lock,null); });
+            when(activeLocks.synchronizeFromSimulation(any()))
+                    .thenReturn(ActiveSignalLockService.SynchronizationState.NO_LOCK);
             when(telegram.configured()).thenReturn(true); when(telegram.send(anyString())).thenReturn(sent());
             BestMixRankingPolicy rankings = new BestMixRankingPolicy();
             service = new MixTradeSimulationService(mixes,simulations,settings,telegram,new TelegramMessageFormatter(),market,rankings,new NotificationEligibilityPolicy(rankings),events,activeLocks);

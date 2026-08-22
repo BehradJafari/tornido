@@ -202,7 +202,9 @@ public class MixTradeSimulationService {
             MixTradeSimulation.Observation observation =
                     simulation.observeMilestones(price, observedAt, aggregateTradeId);
             if (!observation.changed()) continue;
-            if (!activeLocks.synchronizeFromSimulation(simulation)) {
+            ActiveSignalLockService.SynchronizationState lockState =
+                    activeLocks.synchronizeFromSimulation(simulation);
+            if (lockState.milestoneTelegramEditAllowed()) {
                 safeTelegramMilestoneUpdate(simulation, observation);
             }
         }
@@ -261,7 +263,9 @@ public class MixTradeSimulationService {
 
         MixTradeSimulation.Observation combined =
                 new MixTradeSimulation.Observation(true, List.copyOf(milestones), terminal);
-        if (!activeLocks.synchronizeFromSimulation(simulation)) {
+        ActiveSignalLockService.SynchronizationState lockState =
+                activeLocks.synchronizeFromSimulation(simulation);
+        if (lockState.milestoneTelegramEditAllowed()) {
             safeTelegramMilestoneUpdate(simulation, combined);
         }
     }
