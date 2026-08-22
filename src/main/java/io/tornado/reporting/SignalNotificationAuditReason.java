@@ -1,0 +1,21 @@
+package io.tornado.reporting;
+
+/** Structured reasons used by the live signal-to-Telegram audit trail. */
+public enum SignalNotificationAuditReason {
+    NO_BEST_MIX,
+    STALE_BEST_MIX,
+    INSUFFICIENT_SAMPLES,
+    WIN_RATE_BELOW_THRESHOLD,
+    NO_DECISIVE_CONSENSUS,
+    MISSING_STRATEGY_VOTES,
+    TELEGRAM_DISABLED,
+    TELEGRAM_NOT_CONFIGURED,
+    UNSUPPORTED_LIVE_HORIZON,
+    POSITION_ALREADY_OPEN,
+    EVENT_PUBLISH_FAILED,
+    AFTER_COMMIT_LOAD_FAILED,
+    FORMAT_FAILED,
+    MESSAGE_TOO_LONG,
+    TELEGRAM_FAILED,
+    TELEGRAM_RATE_LIMITED
+}

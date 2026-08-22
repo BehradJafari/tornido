@@ -105,7 +105,7 @@ class BinanceMarketDataClientTest {
         return client(builder,Clock.systemUTC());
     }
     private BinanceMarketDataClient client(RestClient.Builder builder,Clock clock){
-        var binance=new TornadoProperties.Binance("https://binance.test","wss://binance.test","5m",250);
+        var binance=new TornadoProperties.Binance("https://binance.test","wss://binance.test","5m",250,java.time.Duration.ofHours(24));
         var scheduler=new TornadoProperties.Scheduler(java.time.Duration.ofMinutes(15),java.time.Duration.ofSeconds(10),java.time.Duration.ofMinutes(1),java.time.Duration.ofMinutes(15));
         return new BinanceMarketDataClient(builder,new TornadoProperties(binance,scheduler,List.of()),clock);
     }

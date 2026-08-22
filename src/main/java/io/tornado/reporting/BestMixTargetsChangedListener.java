@@ -20,8 +20,11 @@ public class BestMixTargetsChangedListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void targetsChanged(BestMixTargetsChanged event) {
         try {
-            maintenance.invalidateStale();
+            log.info("SIGNAL_NOTIFY_AUDIT best-mix-rebuild-start previousTargets={} currentTargets={}", event.previous(), event.current());
+            int stale = maintenance.invalidateStale();
+            log.info("SIGNAL_NOTIFY_AUDIT best-mix-rebuild-invalidated BEST_MIX_STALE_ROWS={}", stale);
             bestMixes.rebuildAll();
+            log.info("SIGNAL_NOTIFY_AUDIT best-mix-rebuild-complete");
         } catch (RuntimeException error) {
             // Consumers independently enforce current targetPercent, so a failed rebuild exposes no stale rows.
             log.error("Best Mix rebuild failed after TP settings changed; stale rankings remain unusable", error);

@@ -5,7 +5,6 @@ import io.tornado.persistence.TpSlLevels;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
 @Component
@@ -30,14 +29,7 @@ public class BestMixRankingPolicy {
         List<String> codes = mix.getStrategyCodes();
         List<Integer> versions = mix.getStrategyVersions();
         for (int i = 0; i < codes.size(); i++) strategies.add(codes.get(i) + "@" + versions.get(i));
-        strategies.sort(Comparator.naturalOrder());
+        strategies.sort(String::compareTo);
         return mix.getCoin().getId() + ":" + mix.getHorizonSeconds() + ":" + String.join(",", strategies);
-    }
-
-    public Comparator<BestMethodMix> representativeOrder() {
-        return Comparator.comparingInt(BestMethodMix::getTpLevel)
-                .thenComparingInt(BestMethodMix::getRank)
-                .thenComparingInt(BestMethodMix::getMixSize)
-                .thenComparing(m -> m.getId() == null ? Long.MAX_VALUE : m.getId());
     }
 }

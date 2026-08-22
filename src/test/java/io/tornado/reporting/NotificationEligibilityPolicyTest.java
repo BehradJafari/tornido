@@ -19,11 +19,19 @@ class NotificationEligibilityPolicyTest {
         ReflectionTestUtils.setField(mix, "targetHitRate", 64.99d);
         var result = policy.evaluate(mix, settings("65"), true);
         assertThat(result.eligible()).isFalse();
-        assertThat(result.suppressionReason()).isEqualTo(NotificationEligibilityPolicy.SuppressionReason.WIN_RATE_BELOW_THRESHOLD);
+        assertThat(result.suppressionReason()).isEqualTo(SignalNotificationAuditReason.WIN_RATE_BELOW_THRESHOLD);
     }
 
     @Test void rateEqualToThresholdIsEligible() { assertThat(policy.evaluate(mix(65), settings("65"), true).eligible()).isTrue(); }
     @Test void rateAboveThresholdIsEligible() { assertThat(policy.evaluate(mix(70), settings("65"), true).eligible()).isTrue(); }
+
+    @Test void samplesBelowCurrentRuntimeMinimumAreSuppressed() {
+        AppSettings settings=settings("65");
+        settings.updateMixSignals(101,settings.getTpSlLevels(),new BigDecimal("65"),false);
+        var result=policy.evaluate(mix(70),settings,true);
+        assertThat(result.eligible()).isFalse();
+        assertThat(result.suppressionReason()).isEqualTo(SignalNotificationAuditReason.INSUFFICIENT_SAMPLES);
+    }
 
     private AppSettings settings(String threshold) {
         AppSettings settings = new AppSettings(900, 900);

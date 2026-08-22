@@ -6,6 +6,8 @@ import io.tornado.reporting.*;
 import io.tornado.strategies.StrategyProfileResolver;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.ta4j.core.BaseBarSeriesBuilder;
 
 import java.math.BigDecimal;
@@ -18,6 +20,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 class PredictionServiceTest {
+    @Test void gradingCycleRunsActiveLockReconciliationAfterCommit(){
+        var coins=mock(CoinRepository.class);var predictions=mock(PredictionRepository.class);var runs=mock(AnalysisRunRepository.class);var market=mock(BinanceMarketDataClient.class);var reconciliation=mock(ActiveSignalLockReconciliationService.class);
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            new PredictionService(coins,predictions,runs,market,null,null,null,reconciliation).gradeDue();
+            assertThat(TransactionSynchronizationManager.getSynchronizations()).hasSize(1);
+            for(TransactionSynchronization synchronization:TransactionSynchronizationManager.getSynchronizations())synchronization.afterCommit();
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        verify(reconciliation).checkAndCloseDue();
+    }
     @Test void profilesMakeHorizonsAndStrategiesIndependentWhileCachingSharedSeries(){var coins=mock(CoinRepository.class);var predictions=mock(PredictionRepository.class);var runs=mock(AnalysisRunRepository.class);var market=mock(BinanceMarketDataClient.class);var resolver=mock(StrategyProfileResolver.class);Coin coin=new Coin("BTC","BTCUSDT");ReflectionTestUtils.setField(coin,"id",1L);when(coins.findAllByActiveTrueOrderBySymbol()).thenReturn(List.of(coin));Instant base=Instant.parse("2026-01-01T00:00:00Z");var series=new BaseBarSeriesBuilder().withName("trend").build();for(int i=0;i<80;i++)series.barBuilder().timePeriod(Duration.ofMinutes(15)).endTime(base.plusSeconds((i+1)*900L)).openPrice(100+i).highPrice(102+i).lowPrice(99+i).closePrice(101+i).volume(1000).add();when(market.candles(eq("BTCUSDT"),anyString())).thenReturn(series);when(market.price("BTCUSDT")).thenReturn(new BigDecimal("181"));var ema1h=StrategyHorizonProfile.fallback("EMA_20",1,3600,"15m","20",base);var ema4h=StrategyHorizonProfile.fallback("EMA_20",1,14400,"1h","20",base);var sma1h=StrategyHorizonProfile.fallback("SMA_20",1,3600,"30m","20",base);var obv1h=StrategyHorizonProfile.fallback("OBV",1,3600,"15m","10",base);when(resolver.resolve(anyCollection())).thenReturn(java.util.Map.of(1L,List.of(ema1h,ema4h,sma1h,obv1h)));when(runs.save(any())).thenAnswer(i->{AnalysisRun run=i.getArgument(0);ReflectionTestUtils.setField(run,"id",1L);return run;});List<Prediction>saved=new ArrayList<>();when(predictions.saveAll(any())).thenAnswer(i->{saved.addAll(i.getArgument(0));return saved;});new PredictionService(coins,predictions,runs,market,mock(BestMixService.class),mock(MixTradeSimulationService.class),resolver).snapshot("v3");assertThat(saved).extracting(Prediction::getCandleInterval).contains("15m","30m","1h");assertThat(saved.stream().filter(p->p.getStrategyCode().equals("EMA_20")).map(Prediction::getCandleInterval)).containsExactlyInAnyOrder("15m","1h");verify(market,times(1)).candles("BTCUSDT","15m");assertThat(saved).allSatisfy(p->assertThat(p.getSignalVersion()).isEqualTo(3));}
     @Test void gradesWithHistoricalPriceAtTheTargetTimestamp(){
         var coins=mock(CoinRepository.class);var predictions=mock(PredictionRepository.class);var runs=mock(AnalysisRunRepository.class);var market=mock(BinanceMarketDataClient.class);

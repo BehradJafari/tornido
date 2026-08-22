@@ -28,9 +28,10 @@ public class MixSignalSettingsService {
     public AppSettings update(int minimumTrades, TpSlLevels levels, java.math.BigDecimal minimumNotificationWinRatePercent, boolean dailyReportEnabled) {
         AppSettings configuration = settings.findById(1).orElseThrow();
         TpSlLevels previous = configuration.getTpSlLevels();
+        int previousMinimumTrades = configuration.getMinimumMixSimulationTrades();
         configuration.updateMixSignals(minimumTrades, levels, minimumNotificationWinRatePercent == null ? configuration.getMinimumNotificationWinRatePercent() : minimumNotificationWinRatePercent, dailyReportEnabled);
         settings.saveAndFlush(configuration);
-        if (!rankings.sameTargets(previous, levels)) {
+        if (!rankings.sameTargets(previous, levels) || previousMinimumTrades != minimumTrades) {
             events.publishEvent(new BestMixTargetsChanged(previous, levels));
         }
         return configuration;

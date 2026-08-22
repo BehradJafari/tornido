@@ -2181,31 +2181,36 @@ function BestMixSignals({ coins, admin }: { coins: Coin[]; admin: boolean }) {
     directionalAccuracy: number;
     wilsonScore: number;
   };
-  type Sim = {
+  type ActiveLock = {
     id: number;
     coin: string;
     pair: string;
-    horizonSeconds: number;
-    mixRank: number;
-    methods: string[];
     direction: "UP" | "DOWN";
-    agreementCount: number;
-    totalMethods: number;
+    horizonSeconds: number;
+    bestMixId?: number;
+    mixTradeSimulationId: number;
+    methods: string[];
     openedAt: string;
+    expectedCloseAt: string;
     entryPrice: number;
     tp1Price: number;
-    tp2Price: number;
-    tp3Price: number;
     sl1Price: number;
-    sl2Price: number;
-    sl3Price: number;
-    status: string;
+    elapsedSeconds: number;
+    remainingSeconds: number;
+    historicalWinRate: number;
+    historicalWilsonScore: number;
+    telegramSent: boolean;
+    telegramMessageId?: number;
+    notificationDeliveryStatus: string;
   };
+  type OpenLocksResponse = { serverNow: string; items: ActiveLock[] };
   const [coin, setCoin] = useState("BTC"),
-    [horizon, setHorizon] = useState(900),
+    [horizon, setHorizon] = useState(3600),
     [tpLevel, setTpLevel] = useState(1),
     [mixes, setMixes] = useState<Mix[]>([]),
-    [open, setOpen] = useState<Sim[]>([]),
+    [open, setOpen] = useState<ActiveLock[]>([]),
+    [serverClock, setServerClock] = useState({ serverAt: 0, clientAt: 0 }),
+    [tick, setTick] = useState(Date.now()),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   useEffect(() => {
@@ -2218,17 +2223,36 @@ function BestMixSignals({ coins, admin }: { coins: Coin[]; admin: boolean }) {
       api<Mix[]>(
         `/api/reports/best-mixes?coin=${coin}&horizon=${horizon}&tpLevel=${tpLevel}`,
       ),
-      api<Sim[]>("/api/mix-simulations?status=OPEN"),
+      api<OpenLocksResponse>("/api/active-signal-locks/open"),
     ])
-      .then(([m, s]) => {
+      .then(([m, response]) => {
         setMixes(m);
+        const clientAt = Date.now();
+        setServerClock({ serverAt: Date.parse(response.serverNow), clientAt });
+        setTick(clientAt);
         setOpen(
-          s.filter((x) => x.coin === coin && x.horizonSeconds === horizon),
+          response.items.filter(
+            (x) => x.coin === coin && x.horizonSeconds === horizon,
+          ),
         );
       })
       .catch((e) => setError(String(e)));
   };
   useEffect(load, [coin, horizon, tpLevel]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setTick(Date.now()), 10_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const effectiveNow = serverClock.serverAt
+    ? serverClock.serverAt + (tick - serverClock.clientAt)
+    : tick;
+  const duration = (seconds: number) => {
+    const safe = Math.max(0, Math.floor(seconds));
+    const hours = Math.floor(safe / 3600);
+    const minutes = Math.floor((safe % 3600) / 60);
+    const secs = safe % 60;
+    return hours ? `${hours}h ${minutes}m` : `${minutes}m ${secs}s`;
+  };
   return (
     <div className="best-signal-view">
       <TpSelector value={tpLevel} setValue={setTpLevel} />
@@ -2275,60 +2299,86 @@ function BestMixSignals({ coins, admin }: { coins: Coin[]; admin: boolean }) {
       </section>
       {error && <div className="form-error">{error}</div>}
       <div className="best-mix-sizes">
-        {[2, 3, 4, 5, 6, 7, 8].map((size) => (
-          <section className="panel best-mix-size" key={size}>
-            <h2>{size} methods</h2>
-            {mixes
-              .filter((m) => m.mixSize === size)
-              .map((m) => (
-                <article key={m.id}>
-                  <b>
-                    #{m.rank} {m.methods.join(" + ")}
-                  </b>
-                  <div>
-                    <span>🔢 {m.samples} samples</span>
-                    <span>
-                      🎯 TP{m.tpLevel} +{m.targetPercent}% ·{" "}
-                      {m.targetHitRate.toFixed(1)}%
-                    </span>
-                    <span>📈 {m.directionalAccuracy.toFixed(1)}%</span>
-                    <span>📐 Wilson {m.wilsonScore.toFixed(1)}%</span>
-                  </div>
-                </article>
-              ))}
-            {!mixes.some((m) => m.mixSize === size) && (
-              <Empty text="Not enough eligible history" />
-            )}
+        {mixes.map((m) => (
+          <section className="panel best-mix-size" key={m.id}>
+            <h2>Best mix · {m.mixSize} methods</h2>
+            <article>
+              <b>{m.methods.join(" + ")}</b>
+              <div>
+                <span>🔢 {m.samples} samples</span>
+                <span>
+                  🎯 TP{m.tpLevel} +{m.targetPercent}% ·{" "}
+                  {m.targetHitRate.toFixed(1)}%
+                </span>
+                <span>📈 {m.directionalAccuracy.toFixed(1)}%</span>
+                <span>📐 Wilson {m.wilsonScore.toFixed(1)}%</span>
+              </div>
+            </article>
           </section>
         ))}
+        {!mixes.length && (
+          <section className="panel best-mix-size">
+            <Empty text="Not enough eligible history" />
+          </section>
+        )}
       </div>
       <section className="panel open-simulations">
-        <h2>Open simulations</h2>
+        <h2>Active signals</h2>
         {open.map((s) => (
-          <article key={s.id}>
-            <strong className={s.direction === "UP" ? "up" : "down"}>
-              {s.direction === "UP" ? "LONG" : "SHORT"}
-            </strong>
-            <span>
-              <b>
-                #{s.id} · Mix #{s.mixRank}
-              </b>
-              <small>{s.methods.join(" + ")}</small>
-            </span>
-            <span>
-              🗳 {s.agreementCount}/{s.totalMethods}
-            </span>
-            <span>
-              Entry {money(s.entryPrice)}
-              <small>
-                🎯 {money(s.tp1Price)} / {money(s.tp2Price)} /{" "}
-                {money(s.tp3Price)} · 🛑 {money(s.sl1Price)} /{" "}
-                {money(s.sl2Price)} / {money(s.sl3Price)}
-              </small>
-            </span>
+          <article className="active-signal-card" key={s.id}>
+            {(() => {
+              const elapsed = Math.max(
+                0,
+                (effectiveNow - Date.parse(s.openedAt)) / 1000,
+              );
+              const remaining = Math.max(
+                0,
+                (Date.parse(s.expectedCloseAt) - effectiveNow) / 1000,
+              );
+              const progress = Math.min(
+                100,
+                (elapsed / Math.max(1, s.horizonSeconds)) * 100,
+              );
+              return (
+                <>
+                  <strong className={s.direction === "UP" ? "up" : "down"}>
+                    {s.direction === "UP" ? "LONG" : "SHORT"}
+                  </strong>
+                  <span>
+                    <b>
+                      Signal #{s.id} · Simulation #{s.mixTradeSimulationId}
+                    </b>
+                    <small>{s.methods.join(" + ")}</small>
+                  </span>
+                  <span>
+                    {s.historicalWinRate.toFixed(1)}% historical
+                    <small>Wilson {s.historicalWilsonScore.toFixed(1)}%</small>
+                  </span>
+                  <span>
+                    Entry {money(s.entryPrice)}
+                    <small>
+                      🎯 TP1 {money(s.tp1Price)} · 🛑 SL1 {money(s.sl1Price)}
+                    </small>
+                  </span>
+                  <span className="signal-countdown">
+                    <b>{duration(remaining)} remaining</b>
+                    <small>{duration(elapsed)} elapsed</small>
+                    <i>
+                      <em style={{ width: `${progress}%` }} />
+                    </i>
+                  </span>
+                  <span className={s.telegramSent ? "telegram-sent" : ""}>
+                    Telegram {s.notificationDeliveryStatus}
+                    {s.telegramMessageId && (
+                      <small>Message #{s.telegramMessageId}</small>
+                    )}
+                  </span>
+                </>
+              );
+            })()}
           </article>
         ))}
-        {!open.length && <Empty text="No open simulations for this slice" />}
+        {!open.length && <Empty text="No active signal for this slice" />}
       </section>
     </div>
   );
@@ -3119,7 +3169,9 @@ function OpportunityAnalytics({ coins }: { coins: Coin[] }) {
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true),
     [updatedAt, setUpdatedAt] = useState<Date>(),
-    [mixSort, setMixSort] = useState<"live" | "historical" | "resolved" | "wilson">("resolved");
+    [mixSort, setMixSort] = useState<
+      "live" | "historical" | "resolved" | "wilson"
+    >("resolved");
   const query = useMemo(() => {
     const q = new URLSearchParams({
       tpLevel: filters.tpLevel,
@@ -3174,28 +3226,75 @@ function OpportunityAnalytics({ coins }: { coins: Coin[] }) {
         ? (cell.successful * 100) / (cell.successful + cell.failed)
         : 0;
   const selectedMatrix = dashboard?.matrix.find(
-    (c) => String(c.tpLevel) === filters.tpLevel && String(c.slLevel) === filters.slLevel,
+    (c) =>
+      String(c.tpLevel) === filters.tpLevel &&
+      String(c.slLevel) === filters.slLevel,
   );
-  const tpRates = [s?.tp1ReachRate || 0, s?.tp2ReachRate || 0, s?.tp3ReachRate || 0];
-  const slRates = [s?.sl1ReachRate || 0, s?.sl2ReachRate || 0, s?.sl3ReachRate || 0];
+  const tpRates = [
+    s?.tp1ReachRate || 0,
+    s?.tp2ReachRate || 0,
+    s?.tp3ReachRate || 0,
+  ];
+  const slRates = [
+    s?.sl1ReachRate || 0,
+    s?.sl2ReachRate || 0,
+    s?.sl3ReachRate || 0,
+  ];
   const sortedMixes = [...(dashboard?.mixes || [])].sort((a, b) => {
-    if (mixSort === "live") return b.liveFirstTouchSuccessRate - a.liveFirstTouchSuccessRate;
-    if (mixSort === "historical") return b.historicalEndpointHitRate - a.historicalEndpointHitRate;
+    if (mixSort === "live")
+      return b.liveFirstTouchSuccessRate - a.liveFirstTouchSuccessRate;
+    if (mixSort === "historical")
+      return b.historicalEndpointHitRate - a.historicalEndpointHitRate;
     if (mixSort === "wilson") return b.wilsonScore - a.wilsonScore;
     return b.successful + b.failed - (a.successful + a.failed);
   });
-  const reset = () => setFilters({coin:"",horizon:"",direction:"",from:"",to:"",tpLevel:"2",slLevel:"1",outcome:"",minimumHistoricalWinRate:"",maximumHistoricalWinRate:"",mixSize:"",mixRank:"",strategyCode:"",method:"",notificationEligible:"",telegramSent:""});
+  const reset = () =>
+    setFilters({
+      coin: "",
+      horizon: "",
+      direction: "",
+      from: "",
+      to: "",
+      tpLevel: "2",
+      slLevel: "1",
+      outcome: "",
+      minimumHistoricalWinRate: "",
+      maximumHistoricalWinRate: "",
+      mixSize: "",
+      mixRank: "",
+      strategyCode: "",
+      method: "",
+      notificationEligible: "",
+      telegramSent: "",
+    });
   return (
     <div className="opportunity-bi">
       <div className="opportunity-header">
         <div>
           <small>OPPORTUNITY INTELLIGENCE</small>
           <h2>Live First-Touch Analytics</h2>
-          <p>Compare historical Best Mix confidence with actual TP/SL first-touch outcomes.</p>
+          <p>
+            Compare historical Best Mix confidence with actual TP/SL first-touch
+            outcomes.
+          </p>
         </div>
         <div className="opportunity-header-actions">
-          {updatedAt && <span className="freshness">Updated {Math.max(0, Math.floor((Date.now()-updatedAt.getTime())/1000))}s ago</span>}
-          <a className="export-button" href={`/api/reports/opportunities/export.csv?${query}`}><Download /> Export CSV</a>
+          {updatedAt && (
+            <span className="freshness">
+              Updated{" "}
+              {Math.max(
+                0,
+                Math.floor((Date.now() - updatedAt.getTime()) / 1000),
+              )}
+              s ago
+            </span>
+          )}
+          <a
+            className="export-button"
+            href={`/api/reports/opportunities/export.csv?${query}`}
+          >
+            <Download /> Export CSV
+          </a>
         </div>
       </div>
       <section className="panel opportunity-filters">
@@ -3273,19 +3372,44 @@ function OpportunityAnalytics({ coins }: { coins: Coin[] }) {
           </label>
           <label>
             FROM
-            <input type="datetime-local" onChange={(e) => set("from", e.target.value ? new Date(e.target.value).toISOString() : "")} />
+            <input
+              type="datetime-local"
+              onChange={(e) =>
+                set(
+                  "from",
+                  e.target.value ? new Date(e.target.value).toISOString() : "",
+                )
+              }
+            />
           </label>
           <label>
             TO
-            <input type="datetime-local" onChange={(e) => set("to", e.target.value ? new Date(e.target.value).toISOString() : "")} />
+            <input
+              type="datetime-local"
+              onChange={(e) =>
+                set(
+                  "to",
+                  e.target.value ? new Date(e.target.value).toISOString() : "",
+                )
+              }
+            />
           </label>
           <label>
             MIX SIZE
-            <input type="number" min="1" value={filters.mixSize} onChange={(e) => set("mixSize", e.target.value)} />
+            <input
+              type="number"
+              min="1"
+              value={filters.mixSize}
+              onChange={(e) => set("mixSize", e.target.value)}
+            />
           </label>
           <label>
             STRATEGY
-            <input value={filters.strategyCode} onChange={(e) => set("strategyCode", e.target.value)} placeholder="RSI_MEAN_REVERSION" />
+            <input
+              value={filters.strategyCode}
+              onChange={(e) => set("strategyCode", e.target.value)}
+              placeholder="RSI_MEAN_REVERSION"
+            />
           </label>
           <label>
             MIX RANK
@@ -3328,55 +3452,257 @@ function OpportunityAnalytics({ coins }: { coins: Coin[] }) {
           </label>
         </div>
         <div className="outcome-definition">
-          <div><span>TAKE PROFIT</span><div className="opp-segmented">{[1,2,3].map(x=><button key={x} className={filters.tpLevel===String(x)?"active":""} onClick={()=>set("tpLevel",String(x))}>TP{x}</button>)}</div></div>
-          <div><span>STOP LOSS</span><div className="opp-segmented sl">{[1,2,3].map(x=><button key={x} className={filters.slLevel===String(x)?"active":""} onClick={()=>set("slLevel",String(x))}>SL{x}</button>)}</div></div>
-          <p><b>Success</b> = TP{filters.tpLevel} touched before SL{filters.slLevel}</p>
+          <div>
+            <span>TAKE PROFIT</span>
+            <div className="opp-segmented">
+              {[1, 2, 3].map((x) => (
+                <button
+                  key={x}
+                  className={filters.tpLevel === String(x) ? "active" : ""}
+                  onClick={() => set("tpLevel", String(x))}
+                >
+                  TP{x}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <span>STOP LOSS</span>
+            <div className="opp-segmented sl">
+              {[1, 2, 3].map((x) => (
+                <button
+                  key={x}
+                  className={filters.slLevel === String(x) ? "active" : ""}
+                  onClick={() => set("slLevel", String(x))}
+                >
+                  SL{x}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p>
+            <b>Success</b> = TP{filters.tpLevel} touched before SL
+            {filters.slLevel}
+          </p>
         </div>
         <div className="filter-actions">
           <button onClick={reset}>Reset</button>
-          <button className="apply-button" onClick={load}>Apply filters</button>
+          <button className="apply-button" onClick={load}>
+            Apply filters
+          </button>
         </div>
       </section>
       {error && <div className="form-error">{error}</div>}
-      {loading && !dashboard ? <OpportunitySkeleton /> : <>
-        <div className="opportunity-kpis">
-          <article><small>TOTAL SIGNALS</small><b>{s?.totalFoundSignals ?? 0}</b></article>
-          <article className="primary"><small>SUCCESS RATE</small><b>{(s?.successRate ?? 0).toFixed(1)}%</b><span>{s?.successful ?? 0} / {s?.resolved ?? 0} resolved</span></article>
-          <article><small>SUCCESSFUL</small><b className="positive">{s?.successful ?? 0}</b></article>
-          <article><small>FAILED</small><b className="negative">{s?.failed ?? 0}</b></article>
-          <article><small>OPEN</small><b>{s?.openOrUnresolved ?? 0}</b></article>
-          <article><small>TELEGRAM SENT</small><b>{s?.telegramSent ?? 0}</b></article>
-        </div>
-        <div className="secondary-metrics">
-          {[["HISTORICAL HIT",s?.averageHistoricalWinRate],["DIRECTIONAL",s?.averageDirectionalAccuracy],["WILSON",s?.averageWilsonScore],["AGREEMENT",s?.averageAgreementRatio],[`TP${filters.tpLevel} REACH`,tpRates[Number(filters.tpLevel)-1]],[`SL${filters.slLevel} REACH`,slRates[Number(filters.slLevel)-1]]].map(([label,value])=><div key={String(label)}><small>{label}</small><b>{Number(value||0).toFixed(1)}%</b></div>)}
-        </div>
-        <div className="opportunity-main-grid">
-          <OpportunityTimeChart rows={dashboard?.timeSeries || []} />
-          <OpportunityMatrix cells={dashboard?.matrix || []} tp={Number(filters.tpLevel)} sl={Number(filters.slLevel)} rate={matrixRate} />
-        </div>
-        <div className="opportunity-analytics-grid">
-          <OpportunityVolumeChart rows={dashboard?.timeSeries || []} />
-          <OpportunityGroupBars title="Success by coin" rows={dashboard?.coins || []} />
-          <OpportunityGroupBars title="Success by horizon" rows={dashboard?.horizons || []} horizon />
-          <section className="panel historical-live">
-            <div className="panel-heading"><div><small>CALIBRATION</small><h3>Historical vs Live</h3></div></div>
-            <div className="comparison"><div><small>HISTORICAL</small><b>{(s?.averageHistoricalWinRate||0).toFixed(1)}%</b></div><div><small>LIVE</small><b>{(s?.successRate||0).toFixed(1)}%</b></div><div><small>DELTA</small><b className={(s?.successRate||0)>=(s?.averageHistoricalWinRate||0)?"positive":"negative"}>{((s?.successRate||0)-(s?.averageHistoricalWinRate||0)).toFixed(1)}%</b></div></div>
-            <p>Endpoint hit confidence compared with resolved first-touch outcomes for the active filters.</p>
+      {loading && !dashboard ? (
+        <OpportunitySkeleton />
+      ) : (
+        <>
+          <div className="opportunity-kpis">
+            <article>
+              <small>TOTAL SIGNALS</small>
+              <b>{s?.totalFoundSignals ?? 0}</b>
+            </article>
+            <article className="primary">
+              <small>SUCCESS RATE</small>
+              <b>{(s?.successRate ?? 0).toFixed(1)}%</b>
+              <span>
+                {s?.successful ?? 0} / {s?.resolved ?? 0} resolved
+              </span>
+            </article>
+            <article>
+              <small>SUCCESSFUL</small>
+              <b className="positive">{s?.successful ?? 0}</b>
+            </article>
+            <article>
+              <small>FAILED</small>
+              <b className="negative">{s?.failed ?? 0}</b>
+            </article>
+            <article>
+              <small>OPEN</small>
+              <b>{s?.openOrUnresolved ?? 0}</b>
+            </article>
+            <article>
+              <small>TELEGRAM SENT</small>
+              <b>{s?.telegramSent ?? 0}</b>
+            </article>
+          </div>
+          <div className="secondary-metrics">
+            {[
+              ["HISTORICAL HIT", s?.averageHistoricalWinRate],
+              ["DIRECTIONAL", s?.averageDirectionalAccuracy],
+              ["WILSON", s?.averageWilsonScore],
+              ["AGREEMENT", s?.averageAgreementRatio],
+              [
+                `TP${filters.tpLevel} REACH`,
+                tpRates[Number(filters.tpLevel) - 1],
+              ],
+              [
+                `SL${filters.slLevel} REACH`,
+                slRates[Number(filters.slLevel) - 1],
+              ],
+            ].map(([label, value]) => (
+              <div key={String(label)}>
+                <small>{label}</small>
+                <b>{Number(value || 0).toFixed(1)}%</b>
+              </div>
+            ))}
+          </div>
+          <div className="opportunity-main-grid">
+            <OpportunityTimeChart rows={dashboard?.timeSeries || []} />
+            <OpportunityMatrix
+              cells={dashboard?.matrix || []}
+              tp={Number(filters.tpLevel)}
+              sl={Number(filters.slLevel)}
+              rate={matrixRate}
+            />
+          </div>
+          <div className="opportunity-analytics-grid">
+            <OpportunityVolumeChart rows={dashboard?.timeSeries || []} />
+            <OpportunityGroupBars
+              title="Success by coin"
+              rows={dashboard?.coins || []}
+            />
+            <OpportunityGroupBars
+              title="Success by horizon"
+              rows={dashboard?.horizons || []}
+              horizon
+            />
+            <section className="panel historical-live">
+              <div className="panel-heading">
+                <div>
+                  <small>CALIBRATION</small>
+                  <h3>Historical vs Live</h3>
+                </div>
+              </div>
+              <div className="comparison">
+                <div>
+                  <small>HISTORICAL</small>
+                  <b>{(s?.averageHistoricalWinRate || 0).toFixed(1)}%</b>
+                </div>
+                <div>
+                  <small>LIVE</small>
+                  <b>{(s?.successRate || 0).toFixed(1)}%</b>
+                </div>
+                <div>
+                  <small>DELTA</small>
+                  <b
+                    className={
+                      (s?.successRate || 0) >=
+                      (s?.averageHistoricalWinRate || 0)
+                        ? "positive"
+                        : "negative"
+                    }
+                  >
+                    {(
+                      (s?.successRate || 0) - (s?.averageHistoricalWinRate || 0)
+                    ).toFixed(1)}
+                    %
+                  </b>
+                </div>
+              </div>
+              <p>
+                Endpoint hit confidence compared with resolved first-touch
+                outcomes for the active filters.
+              </p>
+            </section>
+            <OpportunityBucketChart rows={dashboard?.winRateBuckets || []} />
+          </div>
+          <section className="panel opportunity-table mix-performance">
+            <div className="table-title">
+              <div>
+                <small>STRATEGY QUALITY</small>
+                <h3>Mix performance</h3>
+              </div>
+              <select
+                aria-label="Sort mix performance"
+                value={mixSort}
+                onChange={(e) => setMixSort(e.target.value as typeof mixSort)}
+              >
+                <option value="resolved">Sort: Resolved</option>
+                <option value="live">Sort: Live %</option>
+                <option value="historical">Sort: Historical %</option>
+                <option value="wilson">Sort: Wilson</option>
+              </select>
+            </div>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Pair</th>
+                    <th>Horizon</th>
+                    <th>Rank</th>
+                    <th>Methods</th>
+                    <th>Historical</th>
+                    <th>Live</th>
+                    <th>Resolved</th>
+                    <th>Wilson</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedMixes.map((m, i) => (
+                    <tr key={`${m.pair}-${m.horizon}-${m.mixRank}-${i}`}>
+                      <td>
+                        <b>{m.pair}</b>
+                      </td>
+                      <td>{formatHorizon(m.horizon)}</td>
+                      <td>#{m.mixRank}</td>
+                      <td>
+                        <small title={m.methods}>{m.methods}</small>
+                      </td>
+                      <td>{m.historicalEndpointHitRate.toFixed(1)}%</td>
+                      <td className="positive">
+                        {m.liveFirstTouchSuccessRate.toFixed(1)}%
+                      </td>
+                      <td>{m.successful + m.failed}</td>
+                      <td>{m.wilsonScore.toFixed(1)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </section>
-          <OpportunityBucketChart rows={dashboard?.winRateBuckets || []} />
-        </div>
-        <section className="panel opportunity-table mix-performance">
-          <div className="table-title"><div><small>STRATEGY QUALITY</small><h3>Mix performance</h3></div><select aria-label="Sort mix performance" value={mixSort} onChange={e=>setMixSort(e.target.value as typeof mixSort)}><option value="resolved">Sort: Resolved</option><option value="live">Sort: Live %</option><option value="historical">Sort: Historical %</option><option value="wilson">Sort: Wilson</option></select></div>
-          <div className="table-scroll"><table><thead><tr><th>Pair</th><th>Horizon</th><th>Rank</th><th>Methods</th><th>Historical</th><th>Live</th><th>Resolved</th><th>Wilson</th></tr></thead><tbody>{sortedMixes.map((m,i)=><tr key={`${m.pair}-${m.horizon}-${m.mixRank}-${i}`}><td><b>{m.pair}</b></td><td>{formatHorizon(m.horizon)}</td><td>#{m.mixRank}</td><td><small title={m.methods}>{m.methods}</small></td><td>{m.historicalEndpointHitRate.toFixed(1)}%</td><td className="positive">{m.liveFirstTouchSuccessRate.toFixed(1)}%</td><td>{m.successful+m.failed}</td><td>{m.wilsonScore.toFixed(1)}</td></tr>)}</tbody></table></div>
-        </section>
-        <section className="panel opportunity-table coin-performance">
-          <div className="table-title"><div><small>MARKET DRILLDOWN</small><h3>Coin performance</h3></div></div>
-          <div className="table-scroll"><table><thead><tr><th>Pair</th><th>Signals</th><th>Resolved</th><th>Success</th><th>Open</th></tr></thead><tbody>{(dashboard?.coins||[]).map(c=><tr key={c.label}><td><b>{c.label}</b></td><td>{c.total}</td><td>{c.successful+c.failed}</td><td>{c.successRate.toFixed(1)}%</td><td>{c.unresolved}</td></tr>)}</tbody></table></div>
-        </section>
-      </>}
+          <section className="panel opportunity-table coin-performance">
+            <div className="table-title">
+              <div>
+                <small>MARKET DRILLDOWN</small>
+                <h3>Coin performance</h3>
+              </div>
+            </div>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Pair</th>
+                    <th>Signals</th>
+                    <th>Resolved</th>
+                    <th>Success</th>
+                    <th>Open</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(dashboard?.coins || []).map((c) => (
+                    <tr key={c.label}>
+                      <td>
+                        <b>{c.label}</b>
+                      </td>
+                      <td>{c.total}</td>
+                      <td>{c.successful + c.failed}</td>
+                      <td>{c.successRate.toFixed(1)}%</td>
+                      <td>{c.unresolved}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
       <section className="panel opportunity-table">
         <div className="table-title">
-          <div><small>OPPORTUNITY LOG</small><h3>Detected opportunities</h3></div>
+          <div>
+            <small>OPPORTUNITY LOG</small>
+            <h3>Detected opportunities</h3>
+          </div>
           <small>Newest first · refreshes every 45s</small>
         </div>
         <div className="table-scroll">
@@ -3398,10 +3724,31 @@ function OpportunityAnalytics({ coins }: { coins: Coin[] }) {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} onClick={() => detail(r.id)} onKeyDown={e=>{if(e.key==="Enter"||e.key===" ")detail(r.id)}} tabIndex={0}>
-                  <td><time>{new Date(r.detectedAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</time><small>{new Date(r.detectedAt).toLocaleDateString()}</small></td>
-                  <td><b>{r.pair}</b></td>
-                  <td><span className={`side-pill ${r.direction.toLowerCase()}`}>{r.direction==="UP"?"LONG":"SHORT"}</span></td>
+                <tr
+                  key={r.id}
+                  onClick={() => detail(r.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") detail(r.id);
+                  }}
+                  tabIndex={0}
+                >
+                  <td>
+                    <time>
+                      {new Date(r.detectedAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </time>
+                    <small>{new Date(r.detectedAt).toLocaleDateString()}</small>
+                  </td>
+                  <td>
+                    <b>{r.pair}</b>
+                  </td>
+                  <td>
+                    <span className={`side-pill ${r.direction.toLowerCase()}`}>
+                      {r.direction === "UP" ? "LONG" : "SHORT"}
+                    </span>
+                  </td>
                   <td>{formatHorizon(r.horizon)}</td>
                   <td>
                     #{r.mixRank} · {r.mixSize} methods
@@ -3411,20 +3758,44 @@ function OpportunityAnalytics({ coins }: { coins: Coin[] }) {
                   <td>
                     +{r.selectedTpPercent}% / -{r.selectedSlPercent}%
                   </td>
-                  <td>{r.firstTouchAt ? (r.tpHitAt===r.firstTouchAt?`TP${filters.tpLevel}`:`SL${filters.slLevel}`) : "—"}</td>
+                  <td>
+                    {r.firstTouchAt
+                      ? r.tpHitAt === r.firstTouchAt
+                        ? `TP${filters.tpLevel}`
+                        : `SL${filters.slLevel}`
+                      : "—"}
+                  </td>
                   <td>
                     <span className={`outcome-pill ${r.outcome.toLowerCase()}`}>
                       {r.outcome}
                     </span>
                   </td>
                   <td>{formatDuration(r.resolutionSeconds)}</td>
-                  <td><span className={`delivery ${r.telegramSent?"sent":""}`}>{r.telegramSent?"SENT":r.notificationEligible?"ELIGIBLE":"SUPPRESSED"}</span></td>
+                  <td>
+                    <span
+                      className={`delivery ${r.telegramSent ? "sent" : ""}`}
+                    >
+                      {r.telegramSent
+                        ? "SENT"
+                        : r.notificationEligible
+                          ? "ELIGIBLE"
+                          : "SUPPRESSED"}
+                    </span>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {!loading && !rows.length && <div className="opportunity-empty"><b>No opportunities match these filters.</b><span>Try expanding the date range or lowering the historical win-rate filter.</span></div>}
+        {!loading && !rows.length && (
+          <div className="opportunity-empty">
+            <b>No opportunities match these filters.</b>
+            <span>
+              Try expanding the date range or lowering the historical win-rate
+              filter.
+            </span>
+          </div>
+        )}
         <div className="pagination">
           <button disabled={!page} onClick={() => setPage((p) => p - 1)}>
             Previous
@@ -3453,7 +3824,11 @@ function OpportunityAnalytics({ coins }: { coins: Coin[] }) {
               <div>
                 <small>OPPORTUNITY #{selected.id}</small>
                 <h2>{selected.pair}</h2>
-                <p>{selected.direction==="UP"?"LONG":"SHORT"} · {formatHorizon(selected.horizon)} · {new Date(selected.detectedAt).toLocaleString()}</p>
+                <p>
+                  {selected.direction === "UP" ? "LONG" : "SHORT"} ·{" "}
+                  {formatHorizon(selected.horizon)} ·{" "}
+                  {new Date(selected.detectedAt).toLocaleString()}
+                </p>
               </div>
               <button onClick={() => setSelected(undefined)}>
                 <X />
@@ -3464,9 +3839,16 @@ function OpportunityAnalytics({ coins }: { coins: Coin[] }) {
             >
               {selected.selectedOutcome}
             </span>
-            <div className={`outcome-explanation ${selected.selectedOutcome.toLowerCase()}`}><b>{selected.selectedOutcome}</b><p>{selected.explanation}</p></div>
+            <div
+              className={`outcome-explanation ${selected.selectedOutcome.toLowerCase()}`}
+            >
+              <b>{selected.selectedOutcome}</b>
+              <p>{selected.explanation}</p>
+            </div>
             <div className="detail-stats">
-              <span>Entry<b>{money(selected.entryPrice)}</b></span>
+              <span>
+                Entry<b>{money(selected.entryPrice)}</b>
+              </span>
               <span>
                 Historical
                 <b>{selected.historicalEndpointHitRate.toFixed(1)}%</b>
@@ -3480,10 +3862,18 @@ function OpportunityAnalytics({ coins }: { coins: Coin[] }) {
                   {selected.agreement}/{selected.totalMethods}
                 </b>
               </span>
-              <span>Selected TP<b>TP{selected.selectedTpLevel}</b></span>
-              <span>Selected SL<b>SL{selected.selectedSlLevel}</b></span>
-              <span>Outcome<b>{selected.selectedOutcome}</b></span>
-              <span>Samples<b>{selected.historicalSamples}</b></span>
+              <span>
+                Selected TP<b>TP{selected.selectedTpLevel}</b>
+              </span>
+              <span>
+                Selected SL<b>SL{selected.selectedSlLevel}</b>
+              </span>
+              <span>
+                Outcome<b>{selected.selectedOutcome}</b>
+              </span>
+              <span>
+                Samples<b>{selected.historicalSamples}</b>
+              </span>
             </div>
             <h3>First-touch timeline</h3>
             <div className="timeline">
@@ -3494,7 +3884,9 @@ function OpportunityAnalytics({ coins }: { coins: Coin[] }) {
                     <b>{x.name}</b>
                     <small>
                       {new Date(x.at).toLocaleString()} · {money(x.price)}
-                      {x.percent != null ? ` · ${x.name.startsWith("TP")?"+":"-"}${Math.abs(x.percent)}%` : ""}
+                      {x.percent != null
+                        ? ` · ${x.name.startsWith("TP") ? "+" : "-"}${Math.abs(x.percent)}%`
+                        : ""}
                     </small>
                   </span>
                 </div>
@@ -3503,7 +3895,15 @@ function OpportunityAnalytics({ coins }: { coins: Coin[] }) {
             <h3>Outcome matrix</h3>
             <div className="touch-matrix detail-matrix">
               {selected.matrix.map((x) => (
-                <div key={`${x.tpLevel}-${x.slLevel}`} className={x.tpLevel===selected.selectedTpLevel&&x.slLevel===selected.selectedSlLevel?"selected":""}>
+                <div
+                  key={`${x.tpLevel}-${x.slLevel}`}
+                  className={
+                    x.tpLevel === selected.selectedTpLevel &&
+                    x.slLevel === selected.selectedSlLevel
+                      ? "selected"
+                      : ""
+                  }
+                >
                   <small>
                     TP{x.tpLevel} / SL{x.slLevel}
                   </small>
@@ -3514,10 +3914,46 @@ function OpportunityAnalytics({ coins }: { coins: Coin[] }) {
               ))}
             </div>
             <h3>Methods</h3>
-            <div className="method-chips">{selected.methods.map(x=><span key={x}>{x}</span>)}</div>
-            <p className="detail-meta">Mix rank #{selected.mixRank} · {selected.mixSize} methods · {selected.strategyCodes.join(", ")}</p>
+            <div className="method-chips">
+              {selected.methods.map((x) => (
+                <span key={x}>{x}</span>
+              ))}
+            </div>
+            <p className="detail-meta">
+              Mix rank #{selected.mixRank} · {selected.mixSize} methods ·{" "}
+              {selected.strategyCodes.join(", ")}
+            </p>
             <h3>Notification audit</h3>
-            <div className="notification-audit"><span>Historical hit<b>{selected.historicalEndpointHitRate.toFixed(1)}%</b></span><span>Minimum required<b>{selected.minimumNotificationWinRatePercent}%</b></span><span>Eligible<b>{selected.notificationEligible?"YES":"NO"}</b></span><span>Telegram<b>{selected.telegramSent?"SENT":selected.notificationStatus}</b></span>{selected.telegramMessageId&&<span>Message ID<b>{selected.telegramMessageId}</b></span>}{!selected.notificationEligible&&<span>Suppression<b>{selected.suppressionReason||"Not eligible"}</b></span>}</div>
+            <div className="notification-audit">
+              <span>
+                Historical hit
+                <b>{selected.historicalEndpointHitRate.toFixed(1)}%</b>
+              </span>
+              <span>
+                Minimum required
+                <b>{selected.minimumNotificationWinRatePercent}%</b>
+              </span>
+              <span>
+                Eligible<b>{selected.notificationEligible ? "YES" : "NO"}</b>
+              </span>
+              <span>
+                Telegram
+                <b>
+                  {selected.telegramSent ? "SENT" : selected.notificationStatus}
+                </b>
+              </span>
+              {selected.telegramMessageId && (
+                <span>
+                  Message ID<b>{selected.telegramMessageId}</b>
+                </span>
+              )}
+              {!selected.notificationEligible && (
+                <span>
+                  Suppression
+                  <b>{selected.suppressionReason || "Not eligible"}</b>
+                </span>
+              )}
+            </div>
             {selected.notificationError && (
               <div className="form-error">{selected.notificationError}</div>
             )}
@@ -3527,15 +3963,226 @@ function OpportunityAnalytics({ coins }: { coins: Coin[] }) {
     </div>
   );
 }
-function formatHorizon(seconds:number){if(seconds<3600)return `${seconds/60}m`;if(seconds<86400)return `${seconds/3600}h`;return `${seconds/86400}d`}
-function formatDuration(seconds:number|null){if(seconds==null)return "—";if(seconds<60)return `${seconds}s`;return `${Math.floor(seconds/60)}m ${seconds%60}s`}
-function PanelHeading({eyebrow,title,meta}:{eyebrow:string;title:string;meta?:string}){return <div className="panel-heading"><div><small>{eyebrow}</small><h3>{title}</h3></div>{meta&&<span>{meta}</span>}</div>}
-function OpportunityTimeChart({rows}:{rows:OpportunityGroup[]}){const points=rows.map((r,i)=>({x:rows.length<2?50:(i/(rows.length-1))*100,y:100-r.successRate,r}));const path=points.map((p,i)=>`${i?"L":"M"}${p.x},${p.y}`).join(" ");return <section className="panel opportunity-time-chart"><PanelHeading eyebrow="LIVE PERFORMANCE" title="Success rate over time" meta={`${rows.reduce((n,r)=>n+r.total,0)} signals`}/><div className="line-chart" role="img" aria-label="First-touch success rate over time"><div className="chart-scale"><span>100%</span><span>50%</span><span>0%</span></div>{rows.length?<svg viewBox="0 -3 100 106" preserveAspectRatio="none"><path className="area" d={`${path} L100,100 L0,100 Z`}/><path className="line" d={path}/>{points.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="1.4"><title>{p.r.label}: {p.r.total} signals, {p.r.successful} success, {p.r.failed} failed, {p.r.successRate.toFixed(1)}%</title></circle>)}</svg>:<Empty text="No time-series data yet."/>}</div><div className="chart-labels"><span>{rows[0]?.label||"—"}</span><span>{rows.at(-1)?.label||"—"}</span></div></section>}
-function OpportunityVolumeChart({rows}:{rows:OpportunityGroup[]}){const max=Math.max(1,...rows.map(r=>r.total));return <section className="panel opportunity-volume"><PanelHeading eyebrow="SIGNAL VOLUME" title="Outcomes over time"/><div className="stacked-bars" role="img" aria-label="Successful, failed and unresolved signal volume over time">{rows.slice(-14).map(r=><div key={r.label} title={`${r.label}: ${r.successful} successful, ${r.failed} failed, ${r.unresolved} unresolved`} style={{height:`${Math.max(8,r.total/max*100)}%`}}><i style={{height:`${r.successful/r.total*100}%`}}/><b style={{height:`${r.failed/r.total*100}%`}}/><em style={{height:`${r.unresolved/r.total*100}%`}}/></div>)}</div><div className="chart-legend"><span className="success">Successful</span><span className="failure">Failed</span><span>Unresolved</span></div></section>}
-function OpportunityGroupBars({title,rows,horizon=false}:{title:string;rows:OpportunityGroup[];horizon?:boolean}){return <section className="panel opportunity-bars"><PanelHeading eyebrow="BREAKDOWN" title={title}/>{rows.slice(0,10).map(r=><div key={r.label}><span><b>{horizon?formatHorizon(Number(r.label)):r.label}</b><small>{r.successful+r.failed} resolved · {r.total} signals</small></span><i><em style={{width:`${Math.min(100,r.successRate)}%`}}/></i><strong>{r.successRate.toFixed(1)}%</strong></div>)}{!rows.length&&<Empty text="No data yet."/>}</section>}
-function OpportunityMatrix({cells,tp,sl,rate}:{cells:OpportunityDashboard["matrix"];tp:number;sl:number;rate:(c:OpportunityDashboard["matrix"][number])=>number}){return <section className="panel opportunity-matrix"><PanelHeading eyebrow="OUTCOME DEFINITION" title="TP / SL success matrix" meta={`TP${tp} / SL${sl}`}/><div className="matrix-grid"><span/>{[1,2,3].map(x=><span key={x}>SL{x}</span>)}{[1,2,3].flatMap(t=>[<span key={`t${t}`}>TP{t}</span>,...[1,2,3].map(l=>{const c=cells.find(x=>x.tpLevel===t&&x.slLevel===l);const resolved=(c?.successful||0)+(c?.failed||0);return <button key={`${t}-${l}`} className={t===tp&&l===sl?"selected":""} aria-label={`TP${t} SL${l}: ${c?rate(c).toFixed(1):0}% success, ${resolved} resolved`}><b>{c?rate(c).toFixed(1):"0.0"}%</b><small>{resolved} resolved</small></button>})])}</div></section>}
-function OpportunityBucketChart({rows}:{rows:OpportunityDashboard["winRateBuckets"]}){return <section className="panel opportunity-buckets"><PanelHeading eyebrow="THRESHOLD ANALYSIS" title="Historical win-rate buckets"/><div>{rows.map(r=><span key={r.label}><small>{r.label}</small><i><em style={{width:`${r.successRate}%`}}/></i><b>{r.successRate.toFixed(1)}%</b><small>{r.resolved} n</small></span>)}</div>{!rows.length&&<Empty text="No bucket data yet."/>}</section>}
-function OpportunitySkeleton(){return <div className="opportunity-skeleton" aria-label="Loading opportunity analytics">{Array.from({length:8},(_,i)=><i key={i}/>)}</div>}
+function formatHorizon(seconds: number) {
+  if (seconds < 3600) return `${seconds / 60}m`;
+  if (seconds < 86400) return `${seconds / 3600}h`;
+  return `${seconds / 86400}d`;
+}
+function formatDuration(seconds: number | null) {
+  if (seconds == null) return "—";
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+function PanelHeading({
+  eyebrow,
+  title,
+  meta,
+}: {
+  eyebrow: string;
+  title: string;
+  meta?: string;
+}) {
+  return (
+    <div className="panel-heading">
+      <div>
+        <small>{eyebrow}</small>
+        <h3>{title}</h3>
+      </div>
+      {meta && <span>{meta}</span>}
+    </div>
+  );
+}
+function OpportunityTimeChart({ rows }: { rows: OpportunityGroup[] }) {
+  const points = rows.map((r, i) => ({
+    x: rows.length < 2 ? 50 : (i / (rows.length - 1)) * 100,
+    y: 100 - r.successRate,
+    r,
+  }));
+  const path = points.map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join(" ");
+  return (
+    <section className="panel opportunity-time-chart">
+      <PanelHeading
+        eyebrow="LIVE PERFORMANCE"
+        title="Success rate over time"
+        meta={`${rows.reduce((n, r) => n + r.total, 0)} signals`}
+      />
+      <div
+        className="line-chart"
+        role="img"
+        aria-label="First-touch success rate over time"
+      >
+        <div className="chart-scale">
+          <span>100%</span>
+          <span>50%</span>
+          <span>0%</span>
+        </div>
+        {rows.length ? (
+          <svg viewBox="0 -3 100 106" preserveAspectRatio="none">
+            <path className="area" d={`${path} L100,100 L0,100 Z`} />
+            <path className="line" d={path} />
+            {points.map((p, i) => (
+              <circle key={i} cx={p.x} cy={p.y} r="1.4">
+                <title>
+                  {p.r.label}: {p.r.total} signals, {p.r.successful} success,{" "}
+                  {p.r.failed} failed, {p.r.successRate.toFixed(1)}%
+                </title>
+              </circle>
+            ))}
+          </svg>
+        ) : (
+          <Empty text="No time-series data yet." />
+        )}
+      </div>
+      <div className="chart-labels">
+        <span>{rows[0]?.label || "—"}</span>
+        <span>{rows.at(-1)?.label || "—"}</span>
+      </div>
+    </section>
+  );
+}
+function OpportunityVolumeChart({ rows }: { rows: OpportunityGroup[] }) {
+  const max = Math.max(1, ...rows.map((r) => r.total));
+  return (
+    <section className="panel opportunity-volume">
+      <PanelHeading eyebrow="SIGNAL VOLUME" title="Outcomes over time" />
+      <div
+        className="stacked-bars"
+        role="img"
+        aria-label="Successful, failed and unresolved signal volume over time"
+      >
+        {rows.slice(-14).map((r) => (
+          <div
+            key={r.label}
+            title={`${r.label}: ${r.successful} successful, ${r.failed} failed, ${r.unresolved} unresolved`}
+            style={{ height: `${Math.max(8, (r.total / max) * 100)}%` }}
+          >
+            <i style={{ height: `${(r.successful / r.total) * 100}%` }} />
+            <b style={{ height: `${(r.failed / r.total) * 100}%` }} />
+            <em style={{ height: `${(r.unresolved / r.total) * 100}%` }} />
+          </div>
+        ))}
+      </div>
+      <div className="chart-legend">
+        <span className="success">Successful</span>
+        <span className="failure">Failed</span>
+        <span>Unresolved</span>
+      </div>
+    </section>
+  );
+}
+function OpportunityGroupBars({
+  title,
+  rows,
+  horizon = false,
+}: {
+  title: string;
+  rows: OpportunityGroup[];
+  horizon?: boolean;
+}) {
+  return (
+    <section className="panel opportunity-bars">
+      <PanelHeading eyebrow="BREAKDOWN" title={title} />
+      {rows.slice(0, 10).map((r) => (
+        <div key={r.label}>
+          <span>
+            <b>{horizon ? formatHorizon(Number(r.label)) : r.label}</b>
+            <small>
+              {r.successful + r.failed} resolved · {r.total} signals
+            </small>
+          </span>
+          <i>
+            <em style={{ width: `${Math.min(100, r.successRate)}%` }} />
+          </i>
+          <strong>{r.successRate.toFixed(1)}%</strong>
+        </div>
+      ))}
+      {!rows.length && <Empty text="No data yet." />}
+    </section>
+  );
+}
+function OpportunityMatrix({
+  cells,
+  tp,
+  sl,
+  rate,
+}: {
+  cells: OpportunityDashboard["matrix"];
+  tp: number;
+  sl: number;
+  rate: (c: OpportunityDashboard["matrix"][number]) => number;
+}) {
+  return (
+    <section className="panel opportunity-matrix">
+      <PanelHeading
+        eyebrow="OUTCOME DEFINITION"
+        title="TP / SL success matrix"
+        meta={`TP${tp} / SL${sl}`}
+      />
+      <div className="matrix-grid">
+        <span />
+        {[1, 2, 3].map((x) => (
+          <span key={x}>SL{x}</span>
+        ))}
+        {[1, 2, 3].flatMap((t) => [
+          <span key={`t${t}`}>TP{t}</span>,
+          ...[1, 2, 3].map((l) => {
+            const c = cells.find((x) => x.tpLevel === t && x.slLevel === l);
+            const resolved = (c?.successful || 0) + (c?.failed || 0);
+            return (
+              <button
+                key={`${t}-${l}`}
+                className={t === tp && l === sl ? "selected" : ""}
+                aria-label={`TP${t} SL${l}: ${c ? rate(c).toFixed(1) : 0}% success, ${resolved} resolved`}
+              >
+                <b>{c ? rate(c).toFixed(1) : "0.0"}%</b>
+                <small>{resolved} resolved</small>
+              </button>
+            );
+          }),
+        ])}
+      </div>
+    </section>
+  );
+}
+function OpportunityBucketChart({
+  rows,
+}: {
+  rows: OpportunityDashboard["winRateBuckets"];
+}) {
+  return (
+    <section className="panel opportunity-buckets">
+      <PanelHeading
+        eyebrow="THRESHOLD ANALYSIS"
+        title="Historical win-rate buckets"
+      />
+      <div>
+        {rows.map((r) => (
+          <span key={r.label}>
+            <small>{r.label}</small>
+            <i>
+              <em style={{ width: `${r.successRate}%` }} />
+            </i>
+            <b>{r.successRate.toFixed(1)}%</b>
+            <small>{r.resolved} n</small>
+          </span>
+        ))}
+      </div>
+      {!rows.length && <Empty text="No bucket data yet." />}
+    </section>
+  );
+}
+function OpportunitySkeleton() {
+  return (
+    <div
+      className="opportunity-skeleton"
+      aria-label="Loading opportunity analytics"
+    >
+      {Array.from({ length: 8 }, (_, i) => (
+        <i key={i} />
+      ))}
+    </div>
+  );
+}
 function Empty({ text }: { text: string }) {
   return <div className="empty">{text}</div>;
 }
