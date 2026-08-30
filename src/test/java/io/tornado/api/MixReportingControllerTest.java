@@ -12,12 +12,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 class MixReportingControllerTest {
-    @Test void bestMixApiNeverReturnsStaleTargetPercent() {
+    @Test void apiReturnsOnlyCurrentEligibleTp1LiveWinner(){
         var mixes=mock(BestMethodMixRepository.class);var settings=mock(AppSettingsRepository.class);Coin coin=new Coin("BTC","BTCUSDT");ReflectionTestUtils.setField(coin,"id",1L);
-        BestMethodMix current=mix(coin,new BigDecimal(".5000"));BestMethodMix stale=mix(coin,new BigDecimal(".80"));
-        when(mixes.findBySignalVersionAndTpLevelOrderByCoinSymbolAscHorizonSecondsAscMixSizeAscRankAsc(3,2)).thenReturn(List.of(current,stale));when(settings.findById(1)).thenReturn(Optional.of(new AppSettings(900,900)));
+        AppSettings configuration=new AppSettings(900,900);configuration.updateMixSignals(50,configuration.getTpSlLevels(),new BigDecimal("87"),true);
+        BestMethodMix current=mix(coin,3600,1,".30",100,90);BestMethodMix belowRate=mix(coin,14400,1,".30",100,70);BestMethodMix oldTp2=mix(coin,43200,2,".50",100,95);BestMethodMix shortHorizon=mix(coin,900,1,".30",100,95);
+        when(mixes.findBySignalVersionOrderByCoinSymbolAscHorizonSecondsAscMixSizeAscRankAsc(3)).thenReturn(List.of(current,belowRate,oldTp2,shortHorizon));when(settings.findById(1)).thenReturn(Optional.of(configuration));
         var controller=new MixReportingController(mixes,mock(BestMixService.class),mock(MixTradeSimulationService.class),settings,new BestMixRankingPolicy());
-        assertThat(controller.best(null,null,2)).singleElement().satisfies(row->assertThat(row.targetPercent()).isEqualByComparingTo(".50"));
+
+        assertThat(controller.best(null,null)).singleElement().satisfies(row->{assertThat(row.id()).isEqualTo(current.getId());assertThat(row.tpLevel()).isEqualTo(1);assertThat(row.rank()).isEqualTo(1);});
     }
-    private BestMethodMix mix(Coin coin,BigDecimal target){BestMethodMix mix=new BestMethodMix(coin,900,2,1,List.of("A","B"),List.of(1,1),List.of("A","B"),10,5,5,.5,2,target);ReflectionTestUtils.setField(mix,"id",target.movePointRight(2).longValue());return mix;}
+    private BestMethodMix mix(Coin coin,long horizon,int tp,String target,long samples,long hits){BestMethodMix mix=new BestMethodMix(coin,horizon,2,1,List.of("A","B"),List.of(1,1),List.of("A","B"),samples,hits,hits,.5,tp,new BigDecimal(target));ReflectionTestUtils.setField(mix,"id",horizon+tp);return mix;}
 }

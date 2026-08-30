@@ -44,16 +44,14 @@ class OpportunityAfterCommitIntegrationTest {
         when(telegram.send(anyString())).thenReturn(new TelegramNotificationService.DeliveryResult(TelegramNotificationService.DeliveryResult.Status.SENT,99L,null));
         AppSettings configuration=settings.findById(1).orElseThrow();configuration.updateTelegram(true);configuration.updateMixSignals(10,configuration.getTpSlLevels(),new BigDecimal("65"),false);settings.saveAndFlush(configuration);
         Coin coin=coins.save(new Coin("PIPE","PIPEUSDT"));
-        BestMethodMix tp1=mixes.save(new BestMethodMix(coin,3600,3,1,List.of("A","B","C"),List.of(1,1,1),List.of("A","B","C"),100,58,70,.5,1,configuration.getTpSlLevels().tp1()));
-        BestMethodMix tp2=mixes.save(new BestMethodMix(coin,3600,3,1,List.of("A","B","C"),List.of(1,1,1),List.of("A","B","C"),100,72,70,.6,2,configuration.getTpSlLevels().tp2()));
+        BestMethodMix tp1=mixes.save(new BestMethodMix(coin,3600,3,1,List.of("A","B","C"),List.of(1,1,1),List.of("A","B","C"),100,72,70,.6,1,configuration.getTpSlLevels().tp1()));
         Prediction a=new Prediction(null,coin,"A",1,"A",Instant.EPOCH,BigDecimal.ONE,Instant.EPOCH,BigDecimal.ONE,Direction.UP,java.time.Duration.ofHours(1),"15m");
         Prediction b=new Prediction(null,coin,"B",1,"B",Instant.EPOCH,BigDecimal.ONE,Instant.EPOCH,BigDecimal.ONE,Direction.UP,java.time.Duration.ofHours(1),"15m");
 
         simulationService.detect(coin,List.of(a,b),Instant.parse("2026-08-18T10:00:00Z"),new BigDecimal("100"));
 
         MixTradeSimulation result=opportunities.findTop500ByOrderByOpenedAtDesc().stream().filter(row->row.getOpenedAt().equals(Instant.parse("2026-08-18T10:00:00Z"))).findFirst().map(row->opportunities.findWithCoinById(row.getId()).orElseThrow()).orElseThrow();
-        assertThat(result.getBestMix().getId()).isEqualTo(tp2.getId());
-        assertThat(result.getBestMix().getId()).isNotEqualTo(tp1.getId());
+        assertThat(result.getBestMix().getId()).isEqualTo(tp1.getId());
         assertThat(result.isEligibleForNotification()).isTrue();
         assertThat(result.getTelegramMessageId()).isEqualTo(99L);
         assertThat(result.getNotificationDeliveryStatus()).isEqualTo(MixTradeSimulation.NotificationDeliveryStatus.SENT);

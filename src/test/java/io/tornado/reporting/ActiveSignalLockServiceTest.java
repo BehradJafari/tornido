@@ -42,6 +42,15 @@ class ActiveSignalLockServiceTest {
     }
 
     @Test
+    void scopeIsImmediatelyEligibleAgainWhenNoOpenLockRemains() {
+        Fixture fixture=new Fixture(3600);
+        when(fixture.repository.existsByCoinIdAndHorizonSecondsAndStatus(1L,3600,ActiveSignalLock.Status.OPEN)).thenReturn(false);
+        when(fixture.repository.saveAndFlush(any())).thenAnswer(invocation->invocation.getArgument(0));
+        ActiveSignalLockService.AdmissionResult result=fixture.service.tryOpen(fixture.coin,fixture.mix,fixture.simulation,new BigDecimal("100"),OPENED_AT.plusSeconds(3601));
+        assertThat(result.admitted()).isTrue();verify(fixture.repository).saveAndFlush(any());
+    }
+
+    @Test
     void unsupportedShortHorizonNeverCreatesALiveLock() {
         Fixture fixture = new Fixture(900);
 

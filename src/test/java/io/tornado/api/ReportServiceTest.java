@@ -51,6 +51,20 @@ class ReportServiceTest {
         assertThatThrownBy(()->service.coinReports(1,0)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("horizon must be one of");
     }
 
+    @Test void reusesExcelCalculationUntilNewPredictionsAreGraded(){
+        var predictions=mock(PredictionRepository.class);Instant grade=Instant.parse("2026-01-01T00:00:00Z");
+        when(predictions.findLatestGradedAt(3)).thenReturn(grade);
+        List<PredictionRepository.MixSourceRow> source=List.of(reportRow(1,"101"));
+        when(predictions.findExcelReportRows(3,List.of("BTC"),List.of(900L))).thenReturn(source);
+        var service=new ReportService(predictions,mock(AnalysisRunRepository.class),mock(BinanceMarketDataClient.class));
+
+        var first=service.superExcelRows(3,1,List.of("BTC"),List.of(900L),List.of(1));
+        var second=service.superExcelRows(3,1,List.of("BTC"),List.of(900L),List.of(1));
+
+        assertThat(second).isSameAs(first);
+        verify(predictions,times(1)).findExcelReportRows(3,List.of("BTC"),List.of(900L));
+    }
+
     @Test void belowRandomOrStatisticallyWeakMethodsReceiveNoConsensusWeight(){
         var predictions=mock(PredictionRepository.class);var runs=mock(AnalysisRunRepository.class);var market=mock(BinanceMarketDataClient.class);Coin coin=new Coin("BTC","BTCUSDT");ReflectionTestUtils.setField(coin,"id",1L);AnalysisRun run=new AnalysisRun("run",Duration.ZERO);ReflectionTestUtils.setField(run,"id",1L);List<Prediction> rows=new ArrayList<>();Instant at=Instant.parse("2026-01-01T00:00:00Z");for(int i=0;i<10;i++)rows.add(gradedAt(run,coin,"A",at.plusSeconds(i),i<4?"101":"99"));var reportRows=rows.stream().map(this::row).toList();when(predictions.findGradedReportRows(3600,3)).thenReturn(reportRows);when(runs.findTopByOrderByCreatedAtDesc()).thenReturn(Optional.of(run));when(predictions.findLiveReportRows(1,3600,3)).thenReturn(reportRows);
 

@@ -47,6 +47,25 @@ public interface PredictionRepository extends JpaRepository<Prediction,Long> {
     List<ReportRow> findAllGradedReportRows(@Param("signalVersion") int signalVersion);
 
     @Query("""
+        select p.analysisRun.id as runId,p.coin.id as coinId,p.coin.symbol as coinSymbol,
+               p.methodName as methodName,p.strategyCode as strategyCode,p.strategyVersion as strategyVersion,p.predictedDirection as predictedDirection,
+               p.priceAtPrediction as priceAtPrediction,p.horizonSeconds as horizonSeconds,
+               p.priceAtGrading as priceAtGrading
+        from Prediction p
+        where p.signalVersion=:signalVersion and p.outcome in ('CORRECT','INCORRECT')
+          and p.coin.symbol in :coinSymbols and p.horizonSeconds in :horizons
+        """)
+    List<MixSourceRow> findExcelReportRows(@Param("signalVersion") int signalVersion,
+                                           @Param("coinSymbols") Collection<String> coinSymbols,
+                                           @Param("horizons") Collection<Long> horizons);
+
+    @Query("""
+        select max(p.gradedAt) from Prediction p
+        where p.signalVersion=:signalVersion and p.outcome in ('CORRECT','INCORRECT')
+        """)
+    Instant findLatestGradedAt(@Param("signalVersion") int signalVersion);
+
+    @Query("""
         select p.analysisRun.id as runId,p.coin.id as coinId,p.coin.symbol as coinSymbol,p.coin.pair as coinPair,
                p.methodName as methodName,p.strategyCode as strategyCode,p.strategyVersion as strategyVersion,p.predictedAt as predictedAt,p.predictedDirection as predictedDirection,
                p.priceAtPrediction as priceAtPrediction,p.horizonSeconds as horizonSeconds,
@@ -89,10 +108,14 @@ public interface PredictionRepository extends JpaRepository<Prediction,Long> {
         """)
     List<RunStats> summarizeRuns(@Param("runIds") Collection<Long> runIds);
 
-    interface ReportRow {
-        Long getRunId(); Long getCoinId(); String getCoinSymbol(); String getCoinPair(); String getMethodName(); String getStrategyCode(); int getStrategyVersion();
-        Instant getPredictedAt(); Direction getPredictedDirection(); BigDecimal getPriceAtPrediction();
-        long getHorizonSeconds(); BigDecimal getPriceAtGrading(); Outcome getOutcome();
+    interface MixSourceRow {
+        Long getRunId(); Long getCoinId(); String getCoinSymbol(); String getMethodName(); String getStrategyCode(); int getStrategyVersion();
+        Direction getPredictedDirection(); BigDecimal getPriceAtPrediction();
+        long getHorizonSeconds(); BigDecimal getPriceAtGrading();
+    }
+    interface ReportRow extends MixSourceRow {
+        String getCoinPair();
+        Instant getPredictedAt(); Outcome getOutcome();
     }
     interface RunStats {
         Long getRunId(); long getPredictions(); long getPending(); long getUngradable(); long getTargetCorrect();

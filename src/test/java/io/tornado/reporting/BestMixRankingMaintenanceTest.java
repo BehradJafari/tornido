@@ -15,9 +15,9 @@ class BestMixRankingMaintenanceTest {
     @Test void invalidatesOnlyRowsWhoseStoredTargetNoLongerMatchesCurrentSettings() {
         var mixes=mock(BestMethodMixRepository.class);var settings=mock(AppSettingsRepository.class);Coin coin=new Coin("BTC","BTCUSDT");ReflectionTestUtils.setField(coin,"id",1L);
         AppSettings configuration=new AppSettings(900,900);when(settings.findById(1)).thenReturn(Optional.of(configuration));
-        BestMethodMix current=new BestMethodMix(coin,900,2,1,List.of("A","B"),List.of(1,1),List.of("A","B"),10,5,5,.5,2,new BigDecimal("0.5000"));
-        BestMethodMix stale1=new BestMethodMix(coin,900,2,1,List.of("C","D"),List.of(1,1),List.of("C","D"),10,5,5,.5,1,new BigDecimal("0.40"));
-        BestMethodMix stale3=new BestMethodMix(coin,900,2,1,List.of("E","F"),List.of(1,1),List.of("E","F"),10,5,5,.5,3,new BigDecimal("1.50"));
+        BestMethodMix current=new BestMethodMix(coin,3600,2,1,List.of("A","B"),List.of(1,1),List.of("A","B"),100,70,70,.5,1,new BigDecimal("0.3000"));
+        BestMethodMix stale1=new BestMethodMix(coin,3600,2,1,List.of("C","D"),List.of(1,1),List.of("C","D"),100,70,70,.5,1,new BigDecimal("0.40"));
+        BestMethodMix stale3=new BestMethodMix(coin,3600,2,1,List.of("E","F"),List.of(1,1),List.of("E","F"),100,70,70,.5,3,new BigDecimal("1.50"));
         when(mixes.findBySignalVersionOrderByCoinSymbolAscHorizonSecondsAscMixSizeAscRankAsc(3)).thenReturn(List.of(current,stale1,stale3));
         int removed=new BestMixRankingMaintenance(mixes,settings,new BestMixRankingPolicy()).invalidateStale();
         @SuppressWarnings("unchecked") ArgumentCaptor<Iterable<BestMethodMix>> deleted=ArgumentCaptor.forClass(Iterable.class);verify(mixes).deleteAllInBatch(deleted.capture());

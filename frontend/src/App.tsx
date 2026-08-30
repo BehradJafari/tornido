@@ -719,7 +719,7 @@ function SuperAnalysis({ prices }: { prices: Record<string, string> }) {
         directionalAccuracy: number;
       }[];
     }>(),
-    [min, setMin] = useState(1),
+    [min, setMin] = useState(30),
     [horizon, setHorizon] = useState(3600),
     [tpLevel, setTpLevel] = useState(1),
     [exporting, setExporting] = useState(false);
@@ -1237,6 +1237,11 @@ function CoinReports({ coins }: { coins: Coin[] }) {
     [size, setSize] = useState(3),
     [horizon, setHorizon] = useState(3600),
     [tpLevel, setTpLevel] = useState(1);
+  useEffect(() => {
+    api<{ minimumMixSimulationTrades: number }>("/api/settings/mix-signals")
+      .then((settings) => setMin(settings.minimumMixSimulationTrades))
+      .catch(() => undefined);
+  }, []);
   useEffect(() => {
     api<any[]>(
       `/api/reports/coins?minSamples=${min}&horizon=${horizon}&tpLevel=${tpLevel}`,
@@ -2180,6 +2185,10 @@ function BestMixSignals({ coins, admin }: { coins: Coin[]; admin: boolean }) {
     targetHitRate: number;
     directionalAccuracy: number;
     wilsonScore: number;
+    currentConsensus: "LONG" | "SHORT" | "NO_SIGNAL";
+    agreementCount: number;
+    requiredVotes: number;
+    activeLockStatus: "OPEN" | "NONE";
   };
   type ActiveLock = {
     id: number;
@@ -2206,7 +2215,6 @@ function BestMixSignals({ coins, admin }: { coins: Coin[]; admin: boolean }) {
   type OpenLocksResponse = { serverNow: string; items: ActiveLock[] };
   const [coin, setCoin] = useState("BTC"),
     [horizon, setHorizon] = useState(3600),
-    [tpLevel, setTpLevel] = useState(1),
     [mixes, setMixes] = useState<Mix[]>([]),
     [open, setOpen] = useState<ActiveLock[]>([]),
     [serverClock, setServerClock] = useState({ serverAt: 0, clientAt: 0 }),
@@ -2221,7 +2229,7 @@ function BestMixSignals({ coins, admin }: { coins: Coin[]; admin: boolean }) {
     setError("");
     Promise.all([
       api<Mix[]>(
-        `/api/reports/best-mixes?coin=${coin}&horizon=${horizon}&tpLevel=${tpLevel}`,
+        `/api/reports/best-mixes?coin=${coin}&horizon=${horizon}`,
       ),
       api<OpenLocksResponse>("/api/active-signal-locks/open"),
     ])
@@ -2238,7 +2246,7 @@ function BestMixSignals({ coins, admin }: { coins: Coin[]; admin: boolean }) {
       })
       .catch((e) => setError(String(e)));
   };
-  useEffect(load, [coin, horizon, tpLevel]);
+  useEffect(load, [coin, horizon]);
   useEffect(() => {
     const timer = window.setInterval(() => setTick(Date.now()), 10_000);
     return () => window.clearInterval(timer);
@@ -2255,7 +2263,6 @@ function BestMixSignals({ coins, admin }: { coins: Coin[]; admin: boolean }) {
   };
   return (
     <div className="best-signal-view">
-      <TpSelector value={tpLevel} setValue={setTpLevel} />
       <section className="panel signal-toolbar">
         <label>
           COIN
@@ -2271,7 +2278,7 @@ function BestMixSignals({ coins, admin }: { coins: Coin[]; admin: boolean }) {
             value={horizon}
             onChange={(e) => setHorizon(Number(e.target.value))}
           >
-            {[60, 900, 1800, 3600, 14400, 43200, 86400].map((x) => (
+            {[3600, 14400, 43200, 86400].map((x) => (
               <option key={x} value={x}>
                 {horizonLabel(x)}
               </option>
@@ -2301,7 +2308,7 @@ function BestMixSignals({ coins, admin }: { coins: Coin[]; admin: boolean }) {
       <div className="best-mix-sizes">
         {mixes.map((m) => (
           <section className="panel best-mix-size" key={m.id}>
-            <h2>Best mix · {m.mixSize} methods</h2>
+            <h2>Current Best Mix · {m.mixSize} methods</h2>
             <article>
               <b>{m.methods.join(" + ")}</b>
               <div>
@@ -2312,13 +2319,19 @@ function BestMixSignals({ coins, admin }: { coins: Coin[]; admin: boolean }) {
                 </span>
                 <span>📈 {m.directionalAccuracy.toFixed(1)}%</span>
                 <span>📐 Wilson {m.wilsonScore.toFixed(1)}%</span>
+                <span>
+                  Current consensus: {m.currentConsensus} · {m.agreementCount}/{m.mixSize} votes (requires {m.requiredVotes})
+                </span>
+                <span>
+                  Active lock: {m.activeLockStatus}
+                </span>
               </div>
             </article>
           </section>
         ))}
         {!mixes.length && (
           <section className="panel best-mix-size">
-            <Empty text="Not enough eligible history" />
+            <Empty text="No eligible Best Mix" />
           </section>
         )}
       </div>

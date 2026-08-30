@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class BestMixRankingPolicyTest {
     @Test void targetComparisonIgnoresBigDecimalScale() {
         Coin coin=new Coin("BTC","BTCUSDT");ReflectionTestUtils.setField(coin,"id",1L);
-        BestMethodMix mix=new BestMethodMix(coin,900,2,1,List.of("A","B"),List.of(1,1),List.of("A","B"),10,5,5,.5,2,new BigDecimal("0.5000"));
+        BestMethodMix mix=new BestMethodMix(coin,900,2,1,List.of("A","B"),List.of(1,1),List.of("A","B"),10,5,5,.5,1,new BigDecimal("0.3000"));
         assertThat(new BestMixRankingPolicy().isCurrent(mix,TpSlLevels.defaults())).isTrue();
     }
 

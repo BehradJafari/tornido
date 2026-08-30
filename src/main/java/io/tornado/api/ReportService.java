@@ -2,7 +2,9 @@ package io.tornado.api;
 
 import io.tornado.persistence.*;
 import io.tornado.persistence.PredictionRepository.ReportRow;
+import io.tornado.persistence.PredictionRepository.MixSourceRow;
 import io.tornado.datafetch.BinanceMarketDataClient;
+import io.tornado.reporting.MixStatisticsCalculator;
 import org.springframework.stereotype.Service;
 import java.util.*;
 
@@ -13,8 +15,11 @@ public class ReportService {
     private final AnalysisRunRepository runs;
     private final BinanceMarketDataClient market;
     private final AppSettingsRepository settings;
-    @org.springframework.beans.factory.annotation.Autowired public ReportService(PredictionRepository predictions,AnalysisRunRepository runs,BinanceMarketDataClient market,AppSettingsRepository settings){this.predictions=predictions;this.runs=runs;this.market=market;this.settings=settings;}
-    public ReportService(PredictionRepository predictions,AnalysisRunRepository runs,BinanceMarketDataClient market){this(predictions,runs,market,null);}
+    private final MixStatisticsCalculator mixStatistics;
+    private final Map<ExcelCacheKey,CachedExcelRows> excelRowsCache=new HashMap<>();
+    @org.springframework.beans.factory.annotation.Autowired public ReportService(PredictionRepository predictions,AnalysisRunRepository runs,BinanceMarketDataClient market,AppSettingsRepository settings,MixStatisticsCalculator mixStatistics){this.predictions=predictions;this.runs=runs;this.market=market;this.settings=settings;this.mixStatistics=mixStatistics;}
+    public ReportService(PredictionRepository predictions,AnalysisRunRepository runs,BinanceMarketDataClient market,AppSettingsRepository settings){this(predictions,runs,market,settings,new MixStatisticsCalculator());}
+    public ReportService(PredictionRepository predictions,AnalysisRunRepository runs,BinanceMarketDataClient market){this(predictions,runs,market,null,new MixStatisticsCalculator());}
 
     public List<CoinReport> coinReports(int minSamples,long horizon){return coinReports(minSamples,horizon,Prediction.CURRENT_SIGNAL_VERSION);}
     public List<CoinReport> coinReports(int minSamples,long horizon,int signalVersion){
@@ -73,8 +78,33 @@ public class ReportService {
     public List<ExcelSliceRow> superExcelRows(int signalVersion){return superExcelRows(signalVersion,1);}public List<ExcelSliceRow> superExcelRows(int signalVersion,int tpLevel){requireSignalVersion(signalVersion);java.math.BigDecimal selectedTarget=target(tpLevel);
         Map<String,Map<Long,List<ReportRow>>> grouped=new TreeMap<>();
         for(ReportRow p:predictions.findAllGradedReportRows(signalVersion))grouped.computeIfAbsent(p.getCoinSymbol(),x->new TreeMap<>()).computeIfAbsent(p.getHorizonSeconds(),x->new ArrayList<>()).add(p);
-        List<ExcelSliceRow> result=new ArrayList<>();
-        grouped.forEach((coin,slices)->slices.forEach((horizon,rows)->{var all=calculateMixesBySizes(rows,1,selectedTarget,1,2,3,4,5,6);List<BestMixBySize> best=new ArrayList<>();for(int size=1;size<=6;size++){var mixes=all.getOrDefault(size,List.of());best.add(new BestMixBySize(size,mixes.isEmpty()?null:mixes.getFirst()));}result.add(new ExcelSliceRow(coin,horizon,best));}));
+        return buildExcelRows(grouped,selectedTarget,List.of(1,2,3,4,5,6));
+    }
+
+    public List<ExcelSliceRow> superExcelRows(int signalVersion,int tpLevel,Collection<String> coinSymbols,Collection<Long> horizons,Collection<Integer> mixSizes){
+        requireSignalVersion(signalVersion);java.math.BigDecimal selectedTarget=target(tpLevel);
+        List<String> normalizedCoins=coinSymbols.stream().map(x->x.toUpperCase(Locale.ROOT)).distinct().sorted().toList();
+        List<Long> normalizedHorizons=horizons.stream().distinct().sorted().toList();
+        List<Integer> normalizedSizes=mixSizes.stream().distinct().sorted().toList();
+        if(normalizedCoins.isEmpty())return List.of();
+        normalizedHorizons.forEach(ReportService::requireSupportedHorizon);
+        if(normalizedSizes.isEmpty()||normalizedSizes.stream().anyMatch(x->x<1||x>6))throw new IllegalArgumentException("mixSizes must contain values from 1 to 6");
+        ExcelCacheKey key=new ExcelCacheKey(signalVersion,tpLevel,selectedTarget,normalizedCoins,normalizedHorizons,normalizedSizes);
+        java.time.Instant latestGrade=predictions.findLatestGradedAt(signalVersion),now=java.time.Instant.now();
+        synchronized(excelRowsCache){
+            CachedExcelRows cached=excelRowsCache.get(key);
+            if(cached!=null&&Objects.equals(cached.latestGrade(),latestGrade)&&cached.createdAt().isAfter(now.minusSeconds(300)))return cached.rows();
+        }
+        Map<String,Map<Long,List<MixSourceRow>>> grouped=new TreeMap<>();
+        for(MixSourceRow p:predictions.findExcelReportRows(signalVersion,normalizedCoins,normalizedHorizons))grouped.computeIfAbsent(p.getCoinSymbol(),x->new TreeMap<>()).computeIfAbsent(p.getHorizonSeconds(),x->new ArrayList<>()).add(p);
+        List<ExcelSliceRow> result=List.copyOf(buildExcelRows(grouped,selectedTarget,normalizedSizes));
+        synchronized(excelRowsCache){if(excelRowsCache.size()>=12)excelRowsCache.clear();excelRowsCache.put(key,new CachedExcelRows(latestGrade,now,result));}
+        return result;
+    }
+
+    private List<ExcelSliceRow> buildExcelRows(Map<String,? extends Map<Long,? extends List<? extends MixSourceRow>>> grouped,java.math.BigDecimal selectedTarget,List<Integer> mixSizes){
+        int[] requestedSizes=mixSizes.stream().mapToInt(Integer::intValue).toArray();List<ExcelSliceRow> result=new ArrayList<>();
+        grouped.forEach((coin,slices)->slices.forEach((horizon,rows)->{var all=calculateMixesBySizes(rows,1,selectedTarget,requestedSizes);List<BestMixBySize> best=new ArrayList<>();for(int size:requestedSizes){var mixes=all.getOrDefault(size,List.of());best.add(new BestMixBySize(size,mixes.isEmpty()?null:mixes.getFirst()));}result.add(new ExcelSliceRow(coin,horizon,List.copyOf(best)));}));
         return result;
     }
 
@@ -96,41 +126,33 @@ public class ReportService {
     private void validateCost(String name,double value){if(value<0||value>5)throw new IllegalArgumentException(name+" percent must be between 0 and 5");}
     private int peakConcurrency(List<TradeCandidate> candidates){record Event(java.time.Instant at,int delta){}List<Event> events=new ArrayList<>(candidates.size()*2);for(TradeCandidate candidate:candidates){events.add(new Event(candidate.time(),1));events.add(new Event(candidate.target(),-1));}events.sort(Comparator.comparing(Event::at).thenComparingInt(Event::delta));int active=0,peak=0;for(Event event:events){active+=event.delta();peak=Math.max(peak,active);}return peak;}
 
-    private List<MixAccuracy> calculateMixes(List<ReportRow> source,int minSamples,int size){return calculateMixes(source,minSamples,size,DEFAULT_TARGET);}private List<MixAccuracy> calculateMixes(List<ReportRow> source,int minSamples,int size,java.math.BigDecimal target){return calculateMixesBySizes(source,minSamples,target,size).getOrDefault(size,List.of());}
-    private Map<Integer,List<MixAccuracy>> calculateMixesBySizes(List<ReportRow> source,int minSamples,java.math.BigDecimal target,int... sizes){
-        List<String> methodNames=source.stream().map(ReportRow::getMethodName).distinct().sorted().toList();
-        if(methodNames.size()>63)throw new IllegalStateException("method mix calculation supports at most 63 methods");
-        Map<String,Integer> methodIndexes=new HashMap<>();for(int i=0;i<methodNames.size();i++)methodIndexes.put(methodNames.get(i),i);
-        Map<GroupKey,GroupSignals> groups=new HashMap<>();
-        for(ReportRow p:source)if(p.getRunId()!=null)groups.computeIfAbsent(new GroupKey(p.getRunId(),p.getCoinId(),p.getHorizonSeconds()),x->new GroupSignals(p)).put(methodIndexes.get(p.getMethodName()),p.getPredictedDirection());
-        Map<Integer,Map<Long,MixScore>> scoresBySize=new HashMap<>();for(int size:sizes)scoresBySize.put(size,new HashMap<>());
-        for(GroupSignals group:groups.values())for(int size:sizes){if(size<1||Long.bitCount(group.methods)<size)continue;Map<Long,MixScore> scores=scoresBySize.get(size);combinations(group.methods,size,0L,mix->{int ups=Long.bitCount(mix&group.ups);MixScore score=scores.computeIfAbsent(mix,x->new MixScore());score.totalPredictions++;boolean sameDirection=ups==0||ups==size,predictedUp=ups*2>size,targetHit=group.targetHit(predictedUp,target),directionHit=group.directionHit(predictedUp);if(sameDirection){score.sameDirectionPredictions++;if(targetHit)score.sameDirectionCorrect++;}if(ups*2==size)return;score.samples++;if(targetHit)score.targetCorrect++;if(directionHit)score.directionalCorrect++;});}
-        Map<Integer,List<MixAccuracy>> result=new HashMap<>();
-        scoresBySize.forEach((size,scores)->result.put(size,scores.entrySet().stream().filter(e->e.getValue().samples>=minSamples).map(e->{MixScore s=e.getValue();return new MixAccuracy(methods(e.getKey(),methodNames),s.totalPredictions,s.sameDirectionPredictions,s.sameDirectionCorrect,s.samples,s.targetCorrect,s.targetHitRate(),s.directionalCorrect,s.directionalAccuracy());}).sorted(Comparator.comparingDouble(MixAccuracy::targetHitRate).reversed().thenComparing(Comparator.comparingLong(MixAccuracy::samples).reversed())).limit(100).toList()));
+    private List<MixAccuracy> calculateMixes(List<? extends MixSourceRow> source,int minSamples,int size){return calculateMixes(source,minSamples,size,DEFAULT_TARGET);}private List<MixAccuracy> calculateMixes(List<? extends MixSourceRow> source,int minSamples,int size,java.math.BigDecimal target){return calculateMixesBySizes(source,minSamples,target,size).getOrDefault(size,List.of());}
+    private Map<Integer,List<MixAccuracy>> calculateMixesBySizes(List<? extends MixSourceRow> source,int minSamples,java.math.BigDecimal target,int... sizes){
+        List<Integer> requested=Arrays.stream(sizes).boxed().toList();Map<Integer,List<MixAccuracy>> result=new HashMap<>();
+        mixStatistics.calculate(source,target.movePointRight(2),requested).stream().filter(x->x.samples()>=minSamples).collect(java.util.stream.Collectors.groupingBy(MixStatisticsCalculator.Statistics::size)).forEach((size,statistics)->result.put(size,statistics.stream().map(x->new MixAccuracy(x.methodNames(),x.totalPredictions(),x.sameDirectionPredictions(),x.sameDirectionTargetHits(),x.samples(),x.targetHits(),x.targetHitRate(),x.directionalCorrect(),x.directionalAccuracy(),x.strategyCodes(),x.strategyVersions())).sorted(Comparator.comparingDouble(MixAccuracy::targetHitRate).reversed().thenComparing(Comparator.comparingLong(MixAccuracy::samples).reversed())).limit(100).toList()));
+        for(int size:sizes)result.putIfAbsent(size,List.of());
         return result;
     }
-    private void combinations(long remaining,int needed,long selected,java.util.function.LongConsumer consumer){if(needed==0){consumer.accept(selected);return;}while(Long.bitCount(remaining)>=needed){long bit=Long.lowestOneBit(remaining);remaining^=bit;combinations(remaining,needed-1,selected|bit,consumer);}}
-    private List<String> methods(long mask,List<String> names){List<String> result=new ArrayList<>(Long.bitCount(mask));while(mask!=0){long bit=Long.lowestOneBit(mask);result.add(names.get(Long.numberOfTrailingZeros(bit)));mask^=bit;}return result;}
     private double wilson(long correct,long total){if(total==0)return 0;double z=1.96,p=(double)correct/total,z2=z*z;return (p+z2/(2*total)-z*Math.sqrt((p*(1-p)+z2/(4*total))/total))/(1+z2/total);}
     private void validateMixSize(int size){if(size<2||size>4)throw new IllegalArgumentException("mix size must be 2, 3, or 4");}
     public static long requireSupportedHorizon(long horizon){if(!Set.of(60L,900L,1800L,3600L,14400L,43200L,86400L).contains(horizon))throw new IllegalArgumentException("horizon must be one of 60, 900, 1800, 3600, 14400, 43200, or 86400 seconds");return horizon;}
     public static int requireSignalVersion(int version){if(version!=Prediction.LEGACY_SIGNAL_VERSION&&version!=Prediction.CURRENT_SIGNAL_VERSION)throw new IllegalArgumentException("signalVersion must be 2 or 3");return version;}
     java.math.BigDecimal targetPercent(int level){if(level<1||level>3)throw new IllegalArgumentException("tpLevel must be 1, 2, or 3");return (settings==null?TpSlLevels.defaults():settings.findById(1).orElseThrow().getTpSlLevels()).tp(level);}private java.math.BigDecimal target(int level){return targetPercent(level).movePointLeft(2);}
-    private boolean mixCorrect(ReportRow p,boolean predictedUp,java.math.BigDecimal target){if(p.getPriceAtGrading()==null)return false;var change=p.getPriceAtGrading().subtract(p.getPriceAtPrediction()).divide(p.getPriceAtPrediction(),12,java.math.RoundingMode.HALF_UP);return predictedUp?change.compareTo(target)>=0:change.compareTo(target.negate())<=0;}
-    private boolean directionCorrect(ReportRow p,boolean predictedUp){if(p.getPriceAtGrading()==null)return false;int comparison=p.getPriceAtGrading().compareTo(p.getPriceAtPrediction());return predictedUp?comparison>0:comparison<0;}
+    private boolean mixCorrect(MixSourceRow p,boolean predictedUp,java.math.BigDecimal target){if(p.getPriceAtGrading()==null)return false;var change=p.getPriceAtGrading().subtract(p.getPriceAtPrediction()).divide(p.getPriceAtPrediction(),12,java.math.RoundingMode.HALF_UP);return predictedUp?change.compareTo(target)>=0:change.compareTo(target.negate())<=0;}
+    private boolean directionCorrect(MixSourceRow p,boolean predictedUp){if(p.getPriceAtGrading()==null)return false;int comparison=p.getPriceAtGrading().compareTo(p.getPriceAtPrediction());return predictedUp?comparison>0:comparison<0;}
     private class Score {long total,targetCorrect,directionalCorrect;void add(ReportRow p,java.math.BigDecimal target){total++;if(mixCorrect(p,p.getPredictedDirection()==Direction.UP,target))targetCorrect++;if(directionCorrect(p,p.getPredictedDirection()==Direction.UP))directionalCorrect++;}double targetHitRate(){return total==0?0:targetCorrect*100.0/total;}double directionalAccuracy(){return total==0?0:directionalCorrect*100.0/total;}}
-    private static class MixScore {long totalPredictions,sameDirectionPredictions,sameDirectionCorrect,samples,targetCorrect,directionalCorrect;double targetHitRate(){return samples==0?0:targetCorrect*100.0/samples;}double directionalAccuracy(){return samples==0?0:directionalCorrect*100.0/samples;}}
-    private static class GroupSignals {long methods,ups;final java.math.BigDecimal upwardReturn;GroupSignals(ReportRow p){upwardReturn=p.getPriceAtGrading()==null?null:p.getPriceAtGrading().subtract(p.getPriceAtPrediction()).divide(p.getPriceAtPrediction(),12,java.math.RoundingMode.HALF_UP);}void put(int index,Direction direction){long bit=1L<<index;methods|=bit;if(direction==Direction.UP)ups|=bit;else ups&=~bit;}boolean targetHit(boolean predictedUp,java.math.BigDecimal target){if(upwardReturn==null)return false;return (predictedUp?upwardReturn:upwardReturn.negate()).compareTo(target)>=0;}boolean directionHit(boolean predictedUp){if(upwardReturn==null)return false;return predictedUp?upwardReturn.signum()>0:upwardReturn.signum()<0;}}
     private record GroupKey(long runId,long coinId,long horizon){}
     private record TradeCandidate(java.time.Instant time,java.time.Instant target,String pair,boolean up,double entry,double exit,boolean targetHit){}
     public record MethodAccuracy(String method,long samples,long targetCorrect,double targetHitRate,long directionalCorrect,double directionalAccuracy){}
     public record CoinReport(String coin,List<MethodAccuracy> methods){}
-    public record MixAccuracy(List<String> methods,long totalPredictions,long sameDirectionPredictions,long sameDirectionCorrect,long samples,long targetCorrect,double targetHitRate,long directionalCorrect,double directionalAccuracy){}
+    public record MixAccuracy(List<String> methods,long totalPredictions,long sameDirectionPredictions,long sameDirectionCorrect,long samples,long targetCorrect,double targetHitRate,long directionalCorrect,double directionalAccuracy,List<String>strategyCodes,List<Integer>strategyVersions){}
     public record CoinMixReport(String coin,int size,List<MixAccuracy> mixes){}
     public record CoinOpportunity(String coin,long samples,long targetCorrect,double targetHitRate,long directionalCorrect,double directionalAccuracy,double valueScore,String bestMethod,double bestMethodTargetHitRate,List<String> bestMix,double bestMixTargetHitRate,long bestMixSamples,String currentDirection,double consensusStrength,int weightedSignals){}
     public record SuperReport(java.time.Instant generatedAt,int minSamples,int tpLevel,java.math.BigDecimal targetPercent,List<CoinOpportunity> coins,List<MixAccuracy> topMixes){}
     public record BestMixBySize(int size,MixAccuracy mix){}
     public record ExcelSliceRow(String coin,long horizon,List<BestMixBySize> bestMixes){}
+    private record ExcelCacheKey(int signalVersion,int tpLevel,java.math.BigDecimal target,List<String> coins,List<Long> horizons,List<Integer> mixSizes){}
+    private record CachedExcelRows(java.time.Instant latestGrade,java.time.Instant createdAt,List<ExcelSliceRow> rows){}
     public record MoneyRequest(String coin,long horizon,List<String> methods,double tradeAmount,int leverage,double takerFeePercent,double slippagePercent,double spreadPercent,double fundingRatePercent){}
     public record MoneyTrade(int number,java.time.Instant time,java.time.Instant targetTime,String side,double entryPrice,double exitPrice,double marketMovePercent,double approximateLiquidationPrice,double grossPnl,double costs,double netPnl,double cumulativeNetPnl,boolean liquidated){}
     public record MoneyReport(String coin,long horizon,List<String> methods,int tpLevel,java.math.BigDecimal targetPercent,String simulationModel,int executedTrades,double tradeAmount,int leverage,double totalMarginAllocated,int peakConcurrentTrades,double peakMarginRequired,double grossPnl,double totalCosts,double netPnl,double netPnlToPeakConcurrentMarginPercent,int profitableTrades,int losingTrades,int breakEvenTrades,double profitWinRate,int targetHits,int targetMisses,double targetHitRate,int liquidations,double realizedPnlDrawdown,double averageNetPnlPerTrade,List<MoneyTrade> trades){}

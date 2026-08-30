@@ -141,9 +141,13 @@ cd frontend && npm run build
 This is research software, not financial advice. Signal accuracy does not account for fees, spread, slippage, or executable order timing.
 # Best mix signals and Telegram
 
-Tornido persists the top three statistically ranked strategy mixes for every active coin, supported horizon, and mix size from 2 through 8. A mix must have at least `minimumMixSimulationTrades` decisive historical samples. Ranking uses the 95% Wilson lower bound of target-hit accuracy, then sample count as a tie-breaker.
+Tornido maintains at most one current live Best Mix for each active coin and live horizon (`1h`, `4h`, `12h`, and `24h`). All combinations of 2 through 8 exact strategy identities (`strategyCode + strategyVersion`) compete in one pool. A candidate is eligible only when it has at least `minimumMixSimulationTrades` decisive historical samples and its raw TP1 endpoint hit rate is at least `minimumNotificationWinRatePercent`. Eligible candidates are ranked deterministically by the 95% Wilson lower bound, raw TP1 hit rate, samples, directional accuracy, smaller mix size, and lexical strategy identity. If no candidate passes both thresholds, no Best Mix is stored and no live signal is emitted.
 
-The Settings page controls the minimum history (default `30`), simulated stop loss (default `0.50%`), signal delivery, and the daily Tehran report. These are simulations only; Tornido never places exchange orders. The research target remains `0.30%`.
+Best Mix statistics and Coin Report mix statistics use the same calculator. Grading refreshes only affected live coin/horizon slices after the grading transaction commits; changing TP1, minimum samples, or minimum win rate triggers a full live Best Mix rebuild after the settings transaction commits. Short horizons remain available for research and reporting but never produce Best Mix live signals.
+
+On a snapshot, only the stored current Best Mix is evaluated. Consensus requires `floor(mixSize / 2) + 1` votes based on the full mix size, so missing strategy predictions never reduce the threshold. A decisive signal is persisted with its one-open-per-coin/horizon lock before Telegram delivery is attempted after commit. The lock closes on ordered aggregate-trade TP1-first, SL1-first, or horizon-timeout semantics; TP2/TP3 and SL2/SL3 remain milestone analytics.
+
+The Settings page controls the minimum history (default `30`), minimum notification/Best Mix win rate, TP/SL ladder, signal delivery, and the daily Tehran report. These are simulations only; Tornido never places exchange orders. The live Best Mix ranking target is TP1.
 
 Telegram credentials are environment-only and are never stored in the database:
 

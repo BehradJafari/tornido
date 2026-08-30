@@ -20,16 +20,6 @@ import java.util.*;
 public class MixTradeSimulationService {
     private static final Logger log = LoggerFactory.getLogger(MixTradeSimulationService.class);
 
-    /** Selects one eligible representative across the three current TP ranking rows. */
-    private static final Comparator<LiveCandidate> LIVE_REPRESENTATIVE_ORDER = Comparator
-            .comparingDouble((LiveCandidate candidate) -> candidate.mix().getTargetHitRate()).reversed()
-            .thenComparing(Comparator.comparingDouble(
-                    (LiveCandidate candidate) -> candidate.mix().getWilsonScore()).reversed())
-            .thenComparing(Comparator.comparingLong(
-                    (LiveCandidate candidate) -> candidate.mix().getSamples()).reversed())
-            .thenComparingInt(candidate -> candidate.mix().getTpLevel())
-            .thenComparing(LiveCandidate::strategyIdentity);
-
     private final BestMethodMixRepository mixes;
     private final MixTradeSimulationRepository simulations;
     private final AppSettingsRepository settings;
@@ -98,25 +88,19 @@ public class MixTradeSimulationService {
         }
 
         TpSlLevels levels = configuration.getTpSlLevels();
-        List<BestMethodMix> loaded = mixes
-                .findByCoinIdAndHorizonSecondsAndSignalVersionOrderByMixSizeAscRankAsc(
-                        coin.getId(), horizon, Prediction.CURRENT_SIGNAL_VERSION);
-        if (loaded.isEmpty()) {
+        BestMethodMix mix = mixes.findOneByCoinIdAndHorizonSecondsAndSignalVersion(
+                coin.getId(), horizon, Prediction.CURRENT_SIGNAL_VERSION).orElse(null);
+        if (mix == null) {
             log.info("SIGNAL_NOTIFY_AUDIT rejected reason={} pair={} horizon={}",
                     SignalNotificationAuditReason.NO_BEST_MIX, coin.getPair(), horizon);
             return;
         }
 
-        List<LiveCandidate> qualified = loaded.stream()
-                .filter(mix -> rankings.isCurrent(mix, levels))
-                .map(mix -> evaluateLiveCandidate(
-                        coin, horizon, mix, currentVotes, configuration))
-                .flatMap(Optional::stream)
-                .sorted(LIVE_REPRESENTATIVE_ORDER)
-                .toList();
-        if (qualified.isEmpty()) return;
-
-        acceptCandidate(coin, qualified.getFirst(), configuration, openedAt, entryPrice);
+        if(!rankings.isCurrent(mix,levels)){
+            log.info("SIGNAL_NOTIFY_AUDIT rejected reason={} pair={} horizon={} mixId={}",SignalNotificationAuditReason.STALE_BEST_MIX,coin.getPair(),horizon,mix.getId());return;
+        }
+        evaluateLiveCandidate(coin,horizon,mix,currentVotes,configuration)
+                .ifPresent(candidate->acceptCandidate(coin,candidate,configuration,openedAt,entryPrice));
     }
 
     private Optional<LiveCandidate> evaluateLiveCandidate(

@@ -20,37 +20,13 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class MixTradeSimulationServiceTest {
-    @Test void onlyTp1RankingCreatesSimulation() { assertOnlyTpCreates(1); }
-    @Test void onlyTp2RankingCreatesSimulation() { assertOnlyTpCreates(2); }
-    @Test void onlyTp3RankingCreatesSimulation() { assertOnlyTpCreates(3); }
+    @Test void currentTp1BestMixCreatesSimulation() { assertOnlyTpCreates(1); }
 
     @Test void differentCurrentMixesAcrossAllTpLevelsCreateOnlyStrongestSimulation() {
         Fixture f = new Fixture();
         f.useMixes(f.mix(1, 1, "A", "B", "C"), f.mix(2, 1, "D", "E", "F"), f.mix(3, 1, "G", "H", "I"));
         f.service.detect(f.coin, f.predictions(Direction.UP, "A","B","C","D","E","F","G","H","I"), Instant.EPOCH, new BigDecimal("100"));
         verify(f.simulations).saveAndFlush(any());
-    }
-
-    @Test void sameCombinationAcrossTp1AndTp2CreatesOneSimulation() {
-        Fixture f = new Fixture();
-        f.useMixes(f.mix(2, 1, "A", "B", "C"), f.mix(1, 3, "A", "B", "C"));
-        f.service.detect(f.coin, f.predictions(Direction.UP, "A","B","C"), Instant.EPOCH, new BigDecimal("100"));
-        ArgumentCaptor<MixTradeSimulation> saved = ArgumentCaptor.forClass(MixTradeSimulation.class);
-        verify(f.simulations).saveAndFlush(saved.capture());
-        assertThat(saved.getValue().getBestMix().getTpLevel()).isEqualTo(1);
-    }
-
-    @Test void qualifyingTp2IsNotSuppressedByBelowThresholdTp1Representative() {
-        Fixture f = new Fixture();
-        f.configuration.updateMixSignals(10,f.configuration.getTpSlLevels(),new BigDecimal("65"),false);
-        f.useMixes(f.mixWithRate(1,1,100,58,"A","B","C"),f.mixWithRate(2,2,100,72,"A","B","C"),f.mixWithRate(3,3,100,68,"A","B","C"));
-        f.service.detect(f.coin,f.predictions(Direction.UP,"A","B","C"),Instant.EPOCH,new BigDecimal("100"));
-        ArgumentCaptor<MixTradeSimulation> saved=ArgumentCaptor.forClass(MixTradeSimulation.class);
-        verify(f.simulations).saveAndFlush(saved.capture());
-        assertThat(saved.getValue().getRankingTpLevel()).isEqualTo(2);
-        assertThat(saved.getValue().getHistoricalTargetHitRate()).isEqualTo(72d);
-        assertThat(saved.getValue().isEligibleForNotification()).isTrue();
-        verify(f.events).publishEvent(any(OpportunityCommittedEvent.class));
     }
 
     @Test void allTpRowsBelowThresholdCreateNoAcceptedSimulationOrEvent() {
@@ -61,6 +37,8 @@ class MixTradeSimulationServiceTest {
         verify(f.simulations,never()).saveAndFlush(any());
         verify(f.events,never()).publishEvent(any());
     }
+
+    @Test void noEligibleBestMixMeansNoSignalLockOrTelegramEvent(){Fixture f=new Fixture();f.useMixes();f.service.detect(f.coin,f.predictions(Direction.UP,"A","B","C"),Instant.EPOCH,new BigDecimal("100"));verify(f.simulations,never()).saveAndFlush(any());verifyNoInteractions(f.activeLocks);verify(f.events,never()).publishEvent(any());}
 
     @Test void samplesBelowCurrentMinimumCreateNoAcceptedSimulation() {
         Fixture f = new Fixture();
@@ -85,12 +63,11 @@ class MixTradeSimulationServiceTest {
         verify(f.simulations,never()).saveAndFlush(any());verify(f.events,never()).publishEvent(any());
     }
 
-    @Test void sameCombinationAcrossAllTpLevelsCreatesOneSimulationAndOneTelegramMessage() {
-        Fixture f = new Fixture();
-        f.useMixes(f.mix(3, 1, "A", "B", "C"), f.mix(1, 2, "A", "B", "C"), f.mix(2, 1, "A", "B", "C"));
-        f.service.detect(f.coin, f.predictions(Direction.UP, "A","B","C"), Instant.EPOCH, new BigDecimal("100"));
-        verify(f.simulations).saveAndFlush(any());
-        verify(f.events).publishEvent(any(OpportunityCommittedEvent.class));
+    @Test void strategyCodeWithWrongVersionDoesNotSatisfyBestMixMembership(){
+        Fixture f=new Fixture();f.useMixes(f.mix(1,1,"A","B","C","D"));
+        List<Prediction> current=new ArrayList<>();current.add(new Prediction(null,f.coin,"A",2,"A v2",Instant.EPOCH,new BigDecimal("100"),Instant.EPOCH,new BigDecimal("100"),Direction.UP,Duration.ofHours(1),"15m"));current.add(f.prediction("B",Direction.UP));current.add(f.prediction("C",Direction.UP));current.add(f.prediction("D",Direction.DOWN));
+        f.service.detect(f.coin,current,Instant.EPOCH,new BigDecimal("100"));
+        verify(f.simulations,never()).saveAndFlush(any());verify(f.events,never()).publishEvent(any());
     }
 
     @Test void oppositeConsensusDirectionCreatesIndependentSimulations() {
@@ -153,8 +130,8 @@ class MixTradeSimulationServiceTest {
         BestMethodMix shortMix = new BestMethodMix(f.coin, 900, 3, 1,
                 List.of("A", "B", "C"), List.of(1, 1, 1), List.of("A", "B", "C"),
                 50, 30, 35, .5, 1, TpSlLevels.defaults().tp1());
-        when(f.mixes.findByCoinIdAndHorizonSecondsAndSignalVersionOrderByMixSizeAscRankAsc(1, 900, 3))
-                .thenReturn(List.of(shortMix));
+        when(f.mixes.findOneByCoinIdAndHorizonSecondsAndSignalVersion(1, 900, 3))
+                .thenReturn(Optional.of(shortMix));
         List<Prediction> predictions = List.of(
                 new Prediction(null, f.coin, "A", 1, "A", Instant.EPOCH, BigDecimal.ONE,
                         Instant.EPOCH, BigDecimal.ONE, Direction.UP, Duration.ofMinutes(15), "5m"));
@@ -288,7 +265,7 @@ class MixTradeSimulationServiceTest {
             BestMixRankingPolicy rankings = new BestMixRankingPolicy();
             service = new MixTradeSimulationService(mixes,simulations,settings,telegram,new TelegramMessageFormatter(),market,rankings,new NotificationEligibilityPolicy(rankings),events,activeLocks);
         }
-        void useMixes(BestMethodMix... rows) { when(mixes.findByCoinIdAndHorizonSecondsAndSignalVersionOrderByMixSizeAscRankAsc(1,3600,3)).thenReturn(List.of(rows)); }
+        void useMixes(BestMethodMix... rows) { when(mixes.findOneByCoinIdAndHorizonSecondsAndSignalVersion(1,3600,3)).thenReturn(rows.length==0?Optional.empty():Optional.of(rows[0])); }
         BestMethodMix mix(int tp,int rank,String... codes) { return mix(tp,rank,TpSlLevels.defaults().tp(tp),codes); }
         BestMethodMix mix(int tp,int rank,BigDecimal target,String... codes) { BestMethodMix value=new BestMethodMix(coin,3600,codes.length,rank,List.of(codes),Collections.nCopies(codes.length,1),List.of(codes),50,30,35,.5,tp,target); ReflectionTestUtils.setField(value,"id",ids.incrementAndGet()); return value; }
         BestMethodMix mixWithRate(int tp,int rank,long samples,long hits,String... codes) { BestMethodMix value=new BestMethodMix(coin,3600,codes.length,rank,List.of(codes),Collections.nCopies(codes.length,1),List.of(codes),samples,hits,hits,.5,tp,TpSlLevels.defaults().tp(tp)); ReflectionTestUtils.setField(value,"id",ids.incrementAndGet()); return value; }

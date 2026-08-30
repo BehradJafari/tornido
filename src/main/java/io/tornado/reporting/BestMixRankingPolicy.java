@@ -11,16 +11,13 @@ import java.util.List;
 public class BestMixRankingPolicy {
     public boolean isCurrent(BestMethodMix mix, TpSlLevels levels) {
         int tpLevel = mix.getTpLevel();
-        return tpLevel >= 1 && tpLevel <= 3
+        return tpLevel == 1
                 && mix.getTargetPercent() != null
-                && mix.getTargetPercent().compareTo(levels.tp(tpLevel)) == 0;
+                && mix.getTargetPercent().compareTo(levels.tp1()) == 0;
     }
 
     public boolean sameTargets(TpSlLevels left, TpSlLevels right) {
-        for (int level = 1; level <= 3; level++) {
-            if (left.tp(level).compareTo(right.tp(level)) != 0) return false;
-        }
-        return true;
+        return left.tp1().compareTo(right.tp1()) == 0;
     }
 
     /** Stable identity shared by equivalent rankings from different TP levels. */

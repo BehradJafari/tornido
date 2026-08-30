@@ -22,13 +22,17 @@ class MixSignalSettingsServiceTest {
         verify(f.events, never()).publishEvent(any());
     }
 
-    @ParameterizedTest @ValueSource(ints={1,2,3})
-    void changingAnyTpValueTriggersRebuildEvent(int level) {
+    @ParameterizedTest @ValueSource(ints={1})
+    void changingRankingTp1TriggersRebuildEvent(int level) {
         Fixture f = new Fixture();
         String[] tp={".30",".50","1.00"}; tp[level-1]=switch(level){case 1->".35";case 2->".60";default->"1.20";};
         f.service.update(30, levels(tp[0],tp[1],tp[2],".30",".50","1.00"), true);
         verify(f.events).publishEvent(any(BestMixTargetsChanged.class));
     }
+
+    @Test void changingOnlyResearchTp2AndTp3DoesNotRebuildLiveTp1Ranking(){Fixture f=new Fixture();f.service.update(30,levels(".30",".60","1.20",".30",".50","1.00"),true);verify(f.events,never()).publishEvent(any());}
+
+    @Test void changingMinimumWinRateTriggersRebuildEvent(){Fixture f=new Fixture();f.service.update(30,TpSlLevels.defaults(),new BigDecimal("87"),true);verify(f.events).publishEvent(any(BestMixTargetsChanged.class));}
 
     @Test void changingMultipleTpValuesPublishesOneRebuildEvent() {
         Fixture f = new Fixture();
